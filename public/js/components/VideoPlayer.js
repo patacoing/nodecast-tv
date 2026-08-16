@@ -1466,6 +1466,13 @@ class VideoPlayer {
      * Handle keyboard shortcuts
      */
     handleKeyboard(e) {
+        // These shortcuts belong to the Live TV player. The listener is on
+        // document, so without this they fired on every page: arrows changed
+        // the volume or seeked while browsing the movie and series grids,
+        // and Space toggled playback of a channel that was not on screen.
+        const livePage = document.getElementById('page-live');
+        if (!livePage?.classList.contains('active')) return;
+
         if (document.activeElement.tagName === 'INPUT') return;
 
         switch (e.key) {

@@ -203,12 +203,34 @@
 
     document.addEventListener('pointerdown', () => { keyboardMode = false; }, true);
 
-    function isTextEntry(el) {
+    /**
+     * Should this horizontal arrow stay inside the control rather than move
+     * the selection? Sliders always keep them. A text field keeps them only
+     * while the caret still has somewhere to go: at the edges the arrow
+     * leaves the field, otherwise a search box traps the selection and the
+     * buttons next to it become unreachable with a remote.
+     */
+    function arrowBelongsToControl(el, dir) {
         if (!el) return false;
         const tag = el.tagName;
-        if (tag === 'TEXTAREA') return true;
-        if (tag !== 'INPUT') return false;
-        return !['checkbox', 'radio', 'button', 'submit'].includes(el.type);
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') return false;
+        if (tag === 'INPUT' && el.type === 'range') return true;
+        if (tag === 'INPUT' &&
+            ['checkbox', 'radio', 'button', 'submit'].includes(el.type)) return false;
+        if (dir !== 'left' && dir !== 'right') return false;
+
+        const value = el.value || '';
+        let start, end;
+        try {
+            start = el.selectionStart;
+            end = el.selectionEnd;
+        } catch {
+            // Input types without a selection API
+            return value.length > 0;
+        }
+        if (start === null) return value.length > 0;
+        if (start !== end) return true; // something is selected
+        return dir === 'left' ? start > 0 : start < value.length;
     }
 
     function isNavigable(el) {
@@ -255,9 +277,10 @@
 
         const active = document.activeElement;
 
-        // Inside a text field or a slider, horizontal arrows belong to the
-        // control (caret / value). Vertical arrows navigate out of it.
-        if (isTextEntry(active) && (dir === 'left' || dir === 'right' || isEnter)) return;
+        // Let the control keep the key when it needs it (caret, slider value,
+        // Enter to submit). Vertical arrows always navigate out.
+        if (arrowBelongsToControl(active, dir)) return;
+        if (isEnter && (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA')) return;
 
         if (!isNavigable(active)) {
             // Nothing focused: on the player pages let the existing playback
