@@ -96,7 +96,15 @@
         if (el.closest('.page:not(.active)')) return false;
         if (el.getAttribute('tabindex') === '-1') return false;
         const r = el.getBoundingClientRect();
-        return r.width > 0 && r.height > 0;
+        if (r.width <= 0 || r.height <= 0) return false;
+
+        // A visibility:hidden element keeps a perfectly valid rect but cannot
+        // take focus, so .focus() fails silently and the selection appears
+        // frozen. The collapsed channel sidebar hides its header that way.
+        if (el.checkVisibility) {
+            return el.checkVisibility({ checkVisibilityCSS: true });
+        }
+        return getComputedStyle(el).visibility !== 'hidden';
     }
 
     function candidates() {
@@ -135,13 +143,14 @@
      * which made the dashboard jump over a whole section whenever the next
      * section held fewer items than the current one.
      */
-    function findNext(current, dir) {
+    function findNext(current, dir, excluded) {
         const from = boxOf(current);
         const vertical = dir === 'down' || dir === 'up';
 
         const ahead = [];
         for (const el of candidates()) {
             if (el === current) continue;
+            if (excluded && excluded.has(el)) continue;
             const to = boxOf(el);
             // Must lie in that direction (small tolerance for rounding)
             if (primaryDistance(from, to, dir) < -1) continue;
@@ -218,8 +227,12 @@
             const ba = boxOf(a), bb = boxOf(b);
             return (ba.top - bb.top) || (ba.left - bb.left);
         });
-        list[0].focus();
-        return document.activeElement === list[0];
+        // Same caution as findNext: an element may refuse focus.
+        for (const el of list.slice(0, 5)) {
+            el.focus();
+            if (document.activeElement === el) return true;
+        }
+        return false;
     }
 
     // ==========================================================
@@ -328,12 +341,11 @@
         return false;
     }
 
-    document.addEventListener('keydown', e => {
-        if (e.altKey || e.ctrlKey || e.metaKey) return;
+    let lastDecision = '(rien)';
 
+    function decide(e) {
         const dir = DIRECTIONS[e.key];
         const isEnter = e.key === 'Enter' || e.key === ' ';
-        if (!dir && !isEnter) return;
 
         setKeyboardMode(true);
         keepPlayerControlsAwake();
@@ -342,8 +354,10 @@
 
         // Let the control keep the key when it needs it (caret, slider value,
         // Enter to submit). Vertical arrows always navigate out.
-        if (arrowBelongsToControl(active, dir)) return;
-        if (isEnter && (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA')) return;
+        if (arrowBelongsToControl(active, dir)) return 'laissée au champ/slider';
+        if (isEnter && (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA')) {
+            return 'entrée laissée au champ';
+        }
 
         if (!isNavigable(active)) {
             // Nothing focused on a player page. Horizontal arrows stay with
@@ -354,32 +368,62 @@
             // picked, could not be entered at all.
             if (onPlayerPage()) {
                 const wantsIn = isEnter || dir === 'up' || dir === 'down';
-                if (wantsIn && (enterPlayerControls() || focusFirst())) {
+                if (!wantsIn) return 'rien de sélectionné, laissée à la lecture';
+                if (enterPlayerControls() || focusFirst()) {
                     e.preventDefault();
                     e.stopPropagation();
+                    return 'entrée dans l\'interface';
                 }
-                return;
+                return 'rien de sélectionné, aucune cible';
             }
             if (dir && focusFirst()) {
                 e.preventDefault();
                 e.stopPropagation();
+                return 'première cible sélectionnée';
             }
-            return;
+            return 'rien de sélectionné, aucune cible';
         }
 
         if (isEnter) {
             if (activate(active)) {
                 e.preventDefault();
                 e.stopPropagation();
+                return 'activé';
             }
-            return;
+            return 'activation laissée au navigateur';
         }
 
-        const next = findNext(active, dir);
-        if (next) {
+        // An element can look perfectly focusable and still refuse focus.
+        // Rather than trust it, check that the focus actually landed and move
+        // on to the next best candidate when it did not.
+        const refused = new Set();
+        for (let attempt = 0; attempt < 5; attempt++) {
+            const next = findNext(active, dir, refused);
+            if (!next) break;
+
             next.focus();
-            e.preventDefault();
-            e.stopPropagation();
+            if (document.activeElement === next) {
+                e.preventDefault();
+                e.stopPropagation();
+                return 'déplacé vers ' + (next.id || next.className || next.tagName);
+            }
+            refused.add(next);
+        }
+        return 'AUCUNE CIBLE dans cette direction';
+    }
+
+    document.addEventListener('keydown', e => {
+        if (e.altKey || e.ctrlKey || e.metaKey) return;
+        if (!DIRECTIONS[e.key] && e.key !== 'Enter' && e.key !== ' ') return;
+
+        // TEMPORAIRE : le try/catch et lastDecision servent au panneau de
+        // diagnostic. Sans cela, une exception ici passerait totalement
+        // inaperçue — la touche serait reçue et rien ne bougerait.
+        try {
+            lastDecision = decide(e) || '(sans effet)';
+        } catch (err) {
+            lastDecision = 'ERREUR ' + (err && err.message);
+            console.error('[DPad]', err);
         }
     }, true); // capture: runs before the playback shortcut listeners
 
@@ -409,7 +453,9 @@
     window.DPad = {
         isNavigable,
         focusFirst,
-        get keyboardMode() { return keyboardMode; }
+        get keyboardMode() { return keyboardMode; },
+        // TEMPORAIRE : lu par le panneau de diagnostic
+        get lastDecision() { return lastDecision; }
     };
 
     // ==========================================================
