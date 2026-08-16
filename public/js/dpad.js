@@ -341,9 +341,7 @@
         return false;
     }
 
-    let lastDecision = '(rien)';
-
-    function decide(e) {
+    function handleKey(e) {
         const dir = DIRECTIONS[e.key];
         const isEnter = e.key === 'Enter' || e.key === ' ';
 
@@ -354,10 +352,8 @@
 
         // Let the control keep the key when it needs it (caret, slider value,
         // Enter to submit). Vertical arrows always navigate out.
-        if (arrowBelongsToControl(active, dir)) return 'laissée au champ/slider';
-        if (isEnter && (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA')) {
-            return 'entrée laissée au champ';
-        }
+        if (arrowBelongsToControl(active, dir)) return;
+        if (isEnter && (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA')) return;
 
         if (!isNavigable(active)) {
             // Nothing focused on a player page. Horizontal arrows stay with
@@ -368,29 +364,25 @@
             // picked, could not be entered at all.
             if (onPlayerPage()) {
                 const wantsIn = isEnter || dir === 'up' || dir === 'down';
-                if (!wantsIn) return 'rien de sélectionné, laissée à la lecture';
-                if (enterPlayerControls() || focusFirst()) {
+                if (wantsIn && (enterPlayerControls() || focusFirst())) {
                     e.preventDefault();
                     e.stopPropagation();
-                    return 'entrée dans l\'interface';
                 }
-                return 'rien de sélectionné, aucune cible';
+                return;
             }
             if (dir && focusFirst()) {
                 e.preventDefault();
                 e.stopPropagation();
-                return 'première cible sélectionnée';
             }
-            return 'rien de sélectionné, aucune cible';
+            return;
         }
 
         if (isEnter) {
             if (activate(active)) {
                 e.preventDefault();
                 e.stopPropagation();
-                return 'activé';
             }
-            return 'activation laissée au navigateur';
+            return;
         }
 
         // An element can look perfectly focusable and still refuse focus.
@@ -405,24 +397,21 @@
             if (document.activeElement === next) {
                 e.preventDefault();
                 e.stopPropagation();
-                return 'déplacé vers ' + (next.id || next.className || next.tagName);
+                return;
             }
             refused.add(next);
         }
-        return 'AUCUNE CIBLE dans cette direction';
     }
 
     document.addEventListener('keydown', e => {
         if (e.altKey || e.ctrlKey || e.metaKey) return;
         if (!DIRECTIONS[e.key] && e.key !== 'Enter' && e.key !== ' ') return;
 
-        // TEMPORAIRE : le try/catch et lastDecision servent au panneau de
-        // diagnostic. Sans cela, une exception ici passerait totalement
-        // inaperçue — la touche serait reçue et rien ne bougerait.
+        // A throw in here would be completely silent: the key is swallowed by
+        // nothing, the selection simply never moves, and there is no clue why.
         try {
-            lastDecision = decide(e) || '(sans effet)';
+            handleKey(e);
         } catch (err) {
-            lastDecision = 'ERREUR ' + (err && err.message);
             console.error('[DPad]', err);
         }
     }, true); // capture: runs before the playback shortcut listeners
@@ -453,9 +442,7 @@
     window.DPad = {
         isNavigable,
         focusFirst,
-        get keyboardMode() { return keyboardMode; },
-        // TEMPORAIRE : lu par le panneau de diagnostic
-        get lastDecision() { return lastDecision; }
+        get keyboardMode() { return keyboardMode; }
     };
 
     // ==========================================================
