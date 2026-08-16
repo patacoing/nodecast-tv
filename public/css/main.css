@@ -2873,14 +2873,14 @@ kbd {
 
 .movie-poster .watchlist-btn.active,
 .series-poster .watchlist-btn.active {
-  color: var(--color-primary);
+  color: var(--color-accent);
   background: rgba(0, 0, 0, 0.6);
 }
 
 .movie-poster .watchlist-btn:hover,
 .series-poster .watchlist-btn:hover {
   background: rgba(0, 0, 0, 0.7);
-  border-color: var(--color-primary);
+  border-color: var(--color-accent);
 }
 
 /* Channel List Favorites */
