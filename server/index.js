@@ -27,6 +27,13 @@ app.use(session({
 app.use(passport.initialize());
 app.use(passport.session());
 
+// Le service worker doit toujours être servi sans cache HTTP pour que les mises à jour soient détectées
+app.get('/sw.js', (req, res) => {
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Content-Type', 'application/javascript');
+    res.sendFile(path.join(__dirname, '..', 'public', 'sw.js'));
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // FFMPEG Configuration (optional - for transcoding support)
