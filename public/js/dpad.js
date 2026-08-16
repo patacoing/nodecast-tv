@@ -40,6 +40,19 @@
 
     const FOCUSABLE_SELECTOR = CARD_SELECTOR + ',' + NATIVE_SELECTOR;
 
+    // Action buttons layered on top of a card. They are real <button>s sitting
+    // inside the card, so they used to be focus stops of their own and kept
+    // catching the selection, which made the movie and series grids
+    // impossible to walk through. A card is a single stop.
+    const SKIP_SELECTOR = [
+        '.favorite-btn',
+        '.watchlist-btn',
+        '.card-fav-btn',
+        '.card-wl-btn',
+        '.card-delete-btn',
+        '.wl-remove-btn',
+    ].join(',');
+
 
     // ==========================================================
     // Hydration: make card-like elements focusable
@@ -71,6 +84,7 @@
 
     function isVisible(el) {
         if (el.disabled) return false;
+        if (el.matches(SKIP_SELECTOR)) return false;
         if (el.closest('.hidden')) return false;
         if (el.closest('.page:not(.active)')) return false;
         if (el.getAttribute('tabindex') === '-1') return false;
