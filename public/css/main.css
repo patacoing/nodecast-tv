@@ -4683,16 +4683,14 @@ kbd {
   display: flex;
   gap: 20px;
   overflow-x: auto;
-  /* The hover lift and the focus ring both draw outside the card, and this
-     container clipped them: overflow-x forces overflow-y to clip as well, so
-     nothing showed above the cards, nor left of the first one. Pad the scroll
-     box, then pull it back out so the cards stay aligned with the section
-     title. */
-  padding: 14px 14px 16px;
-  margin-left: -14px;
-  margin-right: -14px;
-  scroll-padding-left: 14px;
-  scroll-padding-right: 14px;
+  /* The focus ring and the focus scale draw outside the card, and this
+     container clips them: overflow-x forces overflow-y to clip as well.
+     A card is 240x420, so scale(1.06) overhangs 7px at the sides but 13px
+     top and bottom, plus 6px of ring — the vertical padding has to be much
+     larger than the horizontal one. Each pad is cancelled by a matching
+     negative margin, so the cards stay exactly where they were. */
+  padding: 26px 16px 22px;
+  margin: -26px -16px -10px;
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
 }
@@ -5068,4 +5066,13 @@ kbd {
 /* Keep the focused element above its neighbours while scaled */
 [data-dpad]:focus {
   position: relative;
+}
+
+/* Room for the ring when an element is scrolled into view. Without this,
+   scrollIntoView parks the card flush against the edge of whichever
+   container scrolls (#page-home, .movies-grid, a carousel...) and the ring
+   is cut off — most visibly along the top. Setting it on the target rather
+   than on each scroller covers them all. */
+[data-dpad] {
+  scroll-margin: 18px;
 }
