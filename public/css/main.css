@@ -941,6 +941,34 @@ video::cue {
   padding-top: calc(var(--space-lg) + env(safe-area-inset-top, 0px));
 }
 
+/* Watch page fullscreen (l'élément mis en fullscreen est .watch-video-section) */
+.watch-video-section:fullscreen,
+.watch-video-section:-webkit-full-screen {
+  background: #000;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.watch-video-section:fullscreen #watch-video,
+.watch-video-section:-webkit-full-screen #watch-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.watch-video-section:fullscreen .watch-bottom-bar,
+.watch-video-section:-webkit-full-screen .watch-bottom-bar {
+  padding-bottom: calc(var(--space-lg) + env(safe-area-inset-bottom, 0px));
+}
+
+.watch-video-section:fullscreen .watch-top-bar,
+.watch-video-section:-webkit-full-screen .watch-top-bar {
+  padding-top: calc(var(--space-lg) + env(safe-area-inset-top, 0px));
+}
+
 .channel-nav {
   display: flex;
   flex-direction: column;

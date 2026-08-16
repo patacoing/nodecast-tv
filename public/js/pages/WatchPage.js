@@ -185,6 +185,18 @@ class WatchPage {
         // Progress bar
         this.progressSlider?.addEventListener('input', (e) => this.seek(e.target.value));
 
+        // Re-verrouiller le portrait si l'utilisateur quitte le plein écran via geste système
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                screen.orientation?.lock?.('portrait').catch(() => {});
+            }
+        });
+        document.addEventListener('webkitfullscreenchange', () => {
+            if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                screen.orientation?.lock?.('portrait').catch(() => {});
+            }
+        });
+
         // Video events
         this.video?.addEventListener('timeupdate', () => this.updateProgress());
         this.video?.addEventListener('durationchange', () => this.updateDurationDisplay());
@@ -720,6 +732,8 @@ class WatchPage {
             } else if (document.webkitExitFullscreen) {
                 document.webkitExitFullscreen();
             }
+            // Re-verrouiller en portrait à la sortie du plein écran
+            screen.orientation?.lock?.('portrait').catch(() => {});
         } else {
             if (container?.requestFullscreen) {
                 container.requestFullscreen();
@@ -729,6 +743,8 @@ class WatchPage {
                 // iOS Safari: use native video fullscreen
                 this.video.webkitEnterFullscreen();
             }
+            // Déverrouiller l'orientation pour permettre le paysage en plein écran
+            screen.orientation?.unlock?.();
         }
     }
 
