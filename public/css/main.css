@@ -2238,6 +2238,15 @@ kbd {
     font-size: 13px;
   }
 
+  /* Masquer les scrollbars sur mobile */
+  ::-webkit-scrollbar {
+    display: none;
+  }
+
+  * {
+    scrollbar-width: none;
+  }
+
   /* Navigation - Compact with hamburger menu */
   .navbar {
     padding: 0 var(--space-sm);
@@ -2264,8 +2273,7 @@ kbd {
     left: 0;
     right: 0;
     flex-direction: column;
-    background: var(--glass-bg);
-    backdrop-filter: blur(12px);
+    background: var(--color-bg-secondary);
     border-bottom: 1px solid var(--glass-border);
     padding: 0;
     gap: 0;
