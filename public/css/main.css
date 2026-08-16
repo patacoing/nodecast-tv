@@ -5011,6 +5011,7 @@ kbd {
 .movie-card:focus-visible,
 .series-card:focus-visible,
 .dashboard-card:focus-visible,
+.channel-tile:focus-visible,
 .watch-recommended-card:focus-visible {
   outline: 3px solid var(--color-accent);
   outline-offset: 3px;
@@ -5024,7 +5025,10 @@ kbd {
 .watch-episode-item:focus-visible,
 .season-header:focus-visible,
 .watch-season-header:focus-visible,
-.group-header:focus-visible {
+.group-header:focus-visible,
+.content-group-header:focus-visible,
+.epg-program:focus-visible,
+.epg-channel-name:focus-visible {
   outline: 3px solid var(--color-accent);
   outline-offset: -3px;
   background: var(--color-bg-hover);

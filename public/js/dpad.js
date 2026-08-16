@@ -16,17 +16,23 @@
     'use strict';
 
     // Clickable elements that are not natively focusable
+    // Keep in sync with anything that gets a click listener but is not a
+    // <button>/<a>. dpad.test.js asserts every entry here stays reachable.
     const CARD_SELECTOR = [
         '.movie-card',
         '.series-card',
         '.dashboard-card',
         '.channel-item',
+        '.channel-tile',
         '.episode-item',
         '.watch-episode-item',
         '.watch-recommended-card',
         '.season-header',
         '.watch-season-header',
         '.group-header',
+        '.content-group-header',
+        '.epg-program',
+        '.epg-channel-name',
     ].join(',');
 
     // Natively focusable interactive elements
