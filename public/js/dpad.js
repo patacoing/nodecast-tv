@@ -277,6 +277,19 @@
         return true;
     }
 
+    /**
+     * Any key is the remote's equivalent of moving the mouse: it has to keep
+     * the player controls on screen and restart their countdown. Navigation
+     * keys are consumed here before the players ever see them, so the signal
+     * has to come from this side too.
+     */
+    function keepPlayerControlsAwake() {
+        const page = document.querySelector('.page.active');
+        if (!page) return;
+        if (page.id === 'page-watch') window.app?.pages?.watch?.showOverlay?.();
+        else if (page.id === 'page-live') window.app?.player?.showOverlay?.();
+    }
+
     /** Reveal player controls and focus the play/pause button. */
     function enterPlayerControls() {
         const page = document.querySelector('.page.active');
@@ -301,6 +314,7 @@
         if (!dir && !isEnter) return;
 
         keyboardMode = true;
+        keepPlayerControlsAwake();
 
         const active = document.activeElement;
 

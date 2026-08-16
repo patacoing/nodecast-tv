@@ -372,15 +372,12 @@ class VideoPlayer {
         };
 
         const hideOverlay = () => {
-            // Never hide the controls while one of them is focused (D-pad usage)
+            // A focused control is about to become display:none, which would
+            // strand the selection on it. Release it: with nothing focused the
+            // bare arrows drive playback again, and any key brings the bar
+            // back.
             if (this.controlsOverlay.contains(document.activeElement)) {
-                resetOverlayTimer();
-                return;
-            }
-            // A remote has no pointer to bring the controls back once they are
-            // gone, so keep them on screen while navigating with keys.
-            if (window.DPad?.keyboardMode) {
-                return;
+                document.activeElement.blur();
             }
             if (!this.video.paused) {
                 this.controlsOverlay.classList.add('hidden');
@@ -395,6 +392,9 @@ class VideoPlayer {
                 overlayTimeout = setTimeout(hideOverlay, 3000);
             }
         };
+
+        // A remote has no pointer, so keys have to do what mousemove does
+        this.showOverlay = showOverlay;
 
         this.container.addEventListener('mousemove', showOverlay);
         this.container.addEventListener('click', (e) => {
@@ -1477,6 +1477,10 @@ class VideoPlayer {
         if (!livePage?.classList.contains('active')) return;
 
         if (document.activeElement.tagName === 'INPUT') return;
+
+        // Any key counts as activity: bring the controls back and restart
+        // their countdown, the way moving a mouse does.
+        this.showOverlay?.();
 
         switch (e.key) {
             case ' ':
