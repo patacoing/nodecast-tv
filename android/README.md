@@ -69,3 +69,37 @@ the page, console, and network requests exactly as if it were a browser tab.
   reached over LAN HTTP, not HTTPS.
 - `minSdk` is 21 (Android 5.0) to cover essentially any Android TV box in
   use; `targetSdk`/`compileSdk` are 34.
+
+## Reproducible container build
+
+No Android SDK needed on the host — only Docker:
+
+```sh
+docker volume create nodecast-android-sdk     # Android SDK
+docker volume create nodecast-gradle-cache    # Gradle dependency cache
+docker volume create nodecast-android-home    # debug keystore, see below
+
+docker run --rm \
+  -v "$PWD":/work \
+  -v nodecast-android-sdk:/sdk \
+  -v nodecast-gradle-cache:/home/gradle/.gradle \
+  -v nodecast-android-home:/root/.android \
+  -e ANDROID_HOME=/sdk -e ANDROID_SDK_ROOT=/sdk \
+  -w /work gradle:8.7-jdk17 \
+  gradle --no-daemon assembleDebug
+```
+
+The first run also has to install the SDK into the volume (see the
+build script in the project history); later runs take well under a
+minute.
+
+**Mount `/root/.android`.** That is where the JVM (`user.home` is
+`/root` in this image) keeps the auto-generated `debug.keystore`.
+Without a volume there, every container signs with a fresh throwaway
+key and the next install fails with:
+
+```
+INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match
+```
+
+which forces an `adb uninstall tv.nodecast.app` before each install.
