@@ -238,7 +238,19 @@
     // to bring it back" has to behave differently in keyboard mode.
     let keyboardMode = false;
 
-    document.addEventListener('pointerdown', () => { keyboardMode = false; }, true);
+    /**
+     * Mirrored onto <html> as .dpad-active so CSS can react. A remote never
+     * hovers, so anything that only shows itself on mouse activity is
+     * invisible forever otherwise — which left the collapsed channel sidebar
+     * with no reachable way back.
+     */
+    function setKeyboardMode(on) {
+        if (keyboardMode === on) return;
+        keyboardMode = on;
+        document.documentElement.classList.toggle('dpad-active', on);
+    }
+
+    document.addEventListener('pointerdown', () => setKeyboardMode(false), true);
 
     /**
      * Should this horizontal arrow stay inside the control rather than move
@@ -323,7 +335,7 @@
         const isEnter = e.key === 'Enter' || e.key === ' ';
         if (!dir && !isEnter) return;
 
-        keyboardMode = true;
+        setKeyboardMode(true);
         keepPlayerControlsAwake();
 
         const active = document.activeElement;

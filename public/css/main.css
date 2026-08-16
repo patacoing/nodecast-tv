@@ -5117,3 +5117,18 @@ kbd {
 .css-fullscreen .watch-top-bar {
   padding-top: calc(var(--space-lg) + env(safe-area-inset-top, 0px));
 }
+
+/* =====================================================
+   Remote-controlled mode (.dpad-active on <html>)
+
+   A remote never hovers and has no pointer, so controls that only
+   reveal themselves on mouse activity would stay invisible forever.
+   The collapsed channel sidebar is the worst case: its expand button
+   is the only way back, and the collapsed state is remembered across
+   restarts, so an invisible button means being stuck for good.
+   ===================================================== */
+
+.dpad-active .home-layout.sidebar-collapsed .sidebar-expand-btn {
+  opacity: 1;
+  pointer-events: auto;
+}
