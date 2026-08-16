@@ -4683,7 +4683,16 @@ kbd {
   display: flex;
   gap: 20px;
   overflow-x: auto;
-  padding-bottom: 12px;
+  /* The hover lift and the focus ring both draw outside the card, and this
+     container clipped them: overflow-x forces overflow-y to clip as well, so
+     nothing showed above the cards, nor left of the first one. Pad the scroll
+     box, then pull it back out so the cards stay aligned with the section
+     title. */
+  padding: 14px 14px 16px;
+  margin-left: -14px;
+  margin-right: -14px;
+  scroll-padding-left: 14px;
+  scroll-padding-right: 14px;
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
 }
