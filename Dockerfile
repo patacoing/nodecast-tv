@@ -8,32 +8,20 @@
 # Build: docker compose build
 # Run with VAAPI: docker run --device /dev/dri:/dev/dri --group-add video ...
 
-FROM ubuntu:24.04
+# node:20 supporte amd64, arm64 et arm/v7 (armhf) nativement
+FROM node:20-slim
 
-# Install Node.js, FFmpeg, and hardware acceleration drivers
-ARG TARGETARCH
+# Install FFmpeg and build tools (needed for better-sqlite3 native compilation)
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    ca-certificates \
-    gnupg \
-    && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
-    && if [ "$TARGETARCH" = "amd64" ]; then \
-        DRIVERS="mesa-va-drivers intel-media-va-driver vainfo"; \
-    else \
-        DRIVERS=""; \
-    fi \
-    && apt-get update && apt-get install -y --no-install-recommends \
-    nodejs \
     ffmpeg \
     python3 \
     make \
     g++ \
-    $DRIVERS \
     && rm -rf /var/lib/apt/lists/*
 
 # Verify FFmpeg installed
-RUN ffmpeg -version && ffmpeg -encoders 2>/dev/null | grep -E "vaapi|nvenc|qsv|libx264" | head -10
+RUN ffmpeg -version
 
 WORKDIR /app
 

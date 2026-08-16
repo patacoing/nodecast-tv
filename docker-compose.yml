@@ -1,10 +1,10 @@
 services:
   nodecast-tv:
-    image: ghcr.io/technomancer702/nodecast-tv:latest
-    build: https://github.com/technomancer702/nodecast-tv.git#main
+    build: 
+      context: .
     container_name: nodecast-tv
     ports:
-      - "3000:3000"
+      - "80:3000"
     volumes:
       - ./data:/app/data
     restart: unless-stopped
