@@ -1032,6 +1032,11 @@ class WatchPage {
             this.startOverlayTimer();
             return;
         }
+        // A remote has no pointer to bring the controls back, so keep them on
+        // screen while navigating with keys.
+        if (window.DPad?.keyboardMode) {
+            return;
+        }
         if (!this.video?.paused) {
             this.overlay?.classList.add('hidden');
             this.overlayVisible = false;

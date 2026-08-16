@@ -51,6 +51,13 @@
         '.card-wl-btn',
         '.card-delete-btn',
         '.wl-remove-btn',
+        // Sliders sit in the middle of the player control bar and would trap
+        // the selection, since their arrows adjust the value instead of
+        // moving on — everything past the volume slider (captions, PiP,
+        // fullscreen, the overflow menu) was unreachable. A remote drives
+        // them through the bare-arrow shortcuts instead: left/right seeks and
+        // up/down changes the volume when no control is focused.
+        'input[type="range"]',
     ].join(',');
 
 
@@ -256,7 +263,7 @@
         if (!page) return false;
 
         const isWatch = page.id === 'page-watch';
-        window.app?.pages?.watch?.showOverlay?.();
+        if (isWatch) window.app?.pages?.watch?.showOverlay?.();
 
         const btn = document.getElementById(isWatch ? 'watch-play-pause' : 'btn-play');
         if (btn && isVisible(btn)) {
