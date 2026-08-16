@@ -346,10 +346,15 @@
         if (isEnter && (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA')) return;
 
         if (!isNavigable(active)) {
-            // Nothing focused: on the player pages let the existing playback
-            // shortcuts run, and use Enter as the way into the controls.
+            // Nothing focused on a player page. Horizontal arrows stay with
+            // playback — seeking and volume, the way a TV player behaves —
+            // while Enter and the vertical arrows are how you reach the
+            // interface. Leaving every arrow to playback meant that a page
+            // with nothing playing, such as Live TV before a channel is
+            // picked, could not be entered at all.
             if (onPlayerPage()) {
-                if (isEnter && enterPlayerControls()) {
+                const wantsIn = isEnter || dir === 'up' || dir === 'down';
+                if (wantsIn && (enterPlayerControls() || focusFirst())) {
                     e.preventDefault();
                     e.stopPropagation();
                 }
