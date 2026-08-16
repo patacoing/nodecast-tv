@@ -21,6 +21,7 @@ class MoviesPage {
         this.observer = null;
         this.favoriteIds = new Set(); // Track favorite movie IDs
         this.showFavoritesOnly = false;
+        this.watchlistIds = new Set(); // Track watchlist movie IDs
 
         this.init();
     }
@@ -66,8 +67,9 @@ class MoviesPage {
             await this.loadSources();
         }
 
-        // Load favorites
+        // Load favorites and watchlist
         await this.loadFavorites();
+        await this.loadWatchlist();
 
         // Load movies if empty
         if (this.movies.length === 0) {
@@ -86,6 +88,15 @@ class MoviesPage {
             this.favoriteIds = new Set(favs.map(f => `${f.source_id}:${f.item_id}`));
         } catch (err) {
             console.error('Error loading favorites:', err);
+        }
+    }
+
+    async loadWatchlist() {
+        try {
+            const items = await API.watchlist.getAll(null, 'movie');
+            this.watchlistIds = new Set(items.map(i => `${i.source_id}:${i.item_id}`));
+        } catch (err) {
+            console.error('Error loading watchlist:', err);
         }
     }
 
@@ -221,14 +232,9 @@ class MoviesPage {
         const searchTerm = this.searchInput?.value?.toLowerCase() || '';
 
         this.filteredMovies = this.movies.filter(m => {
-            // Filter by favorites if enabled
-            if (this.showFavoritesOnly) {
-                const favKey = `${m.sourceId}:${m.stream_id}`;
-                if (!this.favoriteIds.has(favKey)) return false;
-            }
-            if (searchTerm && !m.name?.toLowerCase().includes(searchTerm)) {
-                return false;
-            }
+            const key = `${m.sourceId}:${m.stream_id}`;
+            if (this.showFavoritesOnly && !this.favoriteIds.has(key)) return false;
+            if (searchTerm && !m.name?.toLowerCase().includes(searchTerm)) return false;
             return true;
         });
 
@@ -282,17 +288,22 @@ class MoviesPage {
             const year = movie.year || movie.releaseDate?.substring(0, 4) || '';
             const rating = movie.rating ? `${Icons.star} ${movie.rating}` : '';
 
-            const isFav = this.favoriteIds.has(`${movie.sourceId}:${movie.stream_id}`);
+            const key = `${movie.sourceId}:${movie.stream_id}`;
+            const isFav = this.favoriteIds.has(key);
+            const isWl = this.watchlistIds.has(key);
 
             card.innerHTML = `
                 <div class="movie-poster">
-                    <img src="${poster}" alt="${movie.name}" 
+                    <img src="${poster}" alt="${movie.name}"
                          onerror="this.onerror=null;this.src='/img/placeholder.png'" loading="lazy">
                     <div class="movie-play-overlay">
                         <span class="play-icon">${Icons.play}</span>
                     </div>
                     <button class="favorite-btn ${isFav ? 'active' : ''}" title="${isFav ? 'Remove from Favorites' : 'Add to Favorites'}">
                         <span class="fav-icon">${isFav ? Icons.favorite : Icons.favoriteOutline}</span>
+                    </button>
+                    <button class="watchlist-btn ${isWl ? 'active' : ''}" title="${isWl ? 'Remove from Watchlist' : 'Add to Watchlist'}">
+                        <span class="wl-icon">${isWl ? Icons.watchlist : Icons.watchlistOutline}</span>
                     </button>
                 </div>
                 <div class="movie-info">
@@ -304,11 +315,12 @@ class MoviesPage {
                 </div>
             `;
 
-            // Card click plays movie, but not if clicking favorite button
             card.addEventListener('click', (e) => {
                 if (e.target.closest('.favorite-btn')) {
-                    const btn = e.target.closest('.favorite-btn');
-                    this.toggleFavorite(movie, btn);
+                    this.toggleFavorite(movie, e.target.closest('.favorite-btn'));
+                    e.stopPropagation();
+                } else if (e.target.closest('.watchlist-btn')) {
+                    this.toggleWatchlist(movie, e.target.closest('.watchlist-btn'));
                     e.stopPropagation();
                 } else {
                     this.playMovie(movie);
@@ -361,6 +373,40 @@ class MoviesPage {
             console.error('Error playing movie:', err);
         }
     }
+    async toggleWatchlist(movie, btn) {
+        const key = `${movie.sourceId}:${movie.stream_id}`;
+        const isWl = this.watchlistIds.has(key);
+        const iconSpan = btn.querySelector('.wl-icon');
+
+        try {
+            if (isWl) {
+                this.watchlistIds.delete(key);
+                btn.classList.remove('active');
+                btn.title = 'Add to Watchlist';
+                if (iconSpan) iconSpan.innerHTML = Icons.watchlistOutline;
+                await API.watchlist.remove(movie.sourceId, movie.stream_id, 'movie');
+            } else {
+                this.watchlistIds.add(key);
+                btn.classList.add('active');
+                btn.title = 'Remove from Watchlist';
+                if (iconSpan) iconSpan.innerHTML = Icons.watchlist;
+                await API.watchlist.add(movie.sourceId, movie.stream_id, 'movie');
+            }
+        } catch (err) {
+            console.error('Error toggling watchlist:', err);
+            // Revert on error
+            if (isWl) {
+                this.watchlistIds.add(key);
+                btn.classList.add('active');
+                if (iconSpan) iconSpan.innerHTML = Icons.watchlist;
+            } else {
+                this.watchlistIds.delete(key);
+                btn.classList.remove('active');
+                if (iconSpan) iconSpan.innerHTML = Icons.watchlistOutline;
+            }
+        }
+    }
+
     async toggleFavorite(movie, btn) {
         const favKey = `${movie.sourceId}:${movie.stream_id}`;
         const isFav = this.favoriteIds.has(favKey);

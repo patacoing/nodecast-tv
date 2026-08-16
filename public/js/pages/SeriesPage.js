@@ -25,6 +25,7 @@ class SeriesPage {
         this.currentSeries = null;
         this.favoriteIds = new Set(); // Track favorite series IDs
         this.showFavoritesOnly = false;
+        this.watchlistIds = new Set(); // Track watchlist series IDs
 
         this.init();
     }
@@ -79,8 +80,9 @@ class SeriesPage {
             await this.loadSources();
         }
 
-        // Load favorites
+        // Load favorites and watchlist
         await this.loadFavorites();
+        await this.loadWatchlist();
 
         // Load series if empty
         if (this.seriesList.length === 0) {
@@ -99,6 +101,15 @@ class SeriesPage {
             this.favoriteIds = new Set(favs.map(f => `${f.source_id}:${f.item_id}`));
         } catch (err) {
             console.error('Error loading favorites:', err);
+        }
+    }
+
+    async loadWatchlist() {
+        try {
+            const items = await API.watchlist.getAll(null, 'series');
+            this.watchlistIds = new Set(items.map(i => `${i.source_id}:${i.item_id}`));
+        } catch (err) {
+            console.error('Error loading watchlist:', err);
         }
     }
 
@@ -233,14 +244,9 @@ class SeriesPage {
         const searchTerm = this.searchInput?.value?.toLowerCase() || '';
 
         this.filteredSeries = this.seriesList.filter(s => {
-            // Filter by favorites if enabled
-            if (this.showFavoritesOnly) {
-                const favKey = `${s.sourceId}:${s.series_id}`;
-                if (!this.favoriteIds.has(favKey)) return false;
-            }
-            if (searchTerm && !s.name?.toLowerCase().includes(searchTerm)) {
-                return false;
-            }
+            const key = `${s.sourceId}:${s.series_id}`;
+            if (this.showFavoritesOnly && !this.favoriteIds.has(key)) return false;
+            if (searchTerm && !s.name?.toLowerCase().includes(searchTerm)) return false;
             return true;
         });
 
@@ -292,17 +298,22 @@ class SeriesPage {
             const year = series.year || series.releaseDate?.substring(0, 4) || '';
             const rating = series.rating ? `${Icons.star} ${series.rating}` : '';
 
-            const isFav = this.favoriteIds.has(`${series.sourceId}:${series.series_id}`);
+            const key = `${series.sourceId}:${series.series_id}`;
+            const isFav = this.favoriteIds.has(key);
+            const isWl = this.watchlistIds.has(key);
 
             card.innerHTML = `
                 <div class="series-poster">
-                    <img src="${poster}" alt="${series.name}" 
+                    <img src="${poster}" alt="${series.name}"
                          onerror="this.onerror=null;this.src='/img/placeholder.png'" loading="lazy">
                     <div class="series-play-overlay">
                         <span class="play-icon">${Icons.play}</span>
                     </div>
                     <button class="favorite-btn ${isFav ? 'active' : ''}" title="${isFav ? 'Remove from Favorites' : 'Add to Favorites'}">
                         <span class="fav-icon">${isFav ? Icons.favorite : Icons.favoriteOutline}</span>
+                    </button>
+                    <button class="watchlist-btn ${isWl ? 'active' : ''}" title="${isWl ? 'Remove from Watchlist' : 'Add to Watchlist'}">
+                        <span class="wl-icon">${isWl ? Icons.watchlist : Icons.watchlistOutline}</span>
                     </button>
                 </div>
                 <div class="series-card-info">
@@ -316,8 +327,10 @@ class SeriesPage {
 
             card.addEventListener('click', (e) => {
                 if (e.target.closest('.favorite-btn')) {
-                    const btn = e.target.closest('.favorite-btn');
-                    this.toggleFavorite(series, btn);
+                    this.toggleFavorite(series, e.target.closest('.favorite-btn'));
+                    e.stopPropagation();
+                } else if (e.target.closest('.watchlist-btn')) {
+                    this.toggleWatchlist(series, e.target.closest('.watchlist-btn'));
                     e.stopPropagation();
                 } else {
                     this.showSeriesDetails(series);
@@ -459,6 +472,39 @@ class SeriesPage {
             }
         } catch (err) {
             console.error('Error playing episode:', err);
+        }
+    }
+
+    async toggleWatchlist(series, btn) {
+        const key = `${series.sourceId}:${series.series_id}`;
+        const isWl = this.watchlistIds.has(key);
+        const iconSpan = btn.querySelector('.wl-icon');
+
+        try {
+            if (isWl) {
+                this.watchlistIds.delete(key);
+                btn.classList.remove('active');
+                btn.title = 'Add to Watchlist';
+                if (iconSpan) iconSpan.innerHTML = Icons.watchlistOutline;
+                await API.watchlist.remove(series.sourceId, series.series_id, 'series');
+            } else {
+                this.watchlistIds.add(key);
+                btn.classList.add('active');
+                btn.title = 'Remove from Watchlist';
+                if (iconSpan) iconSpan.innerHTML = Icons.watchlist;
+                await API.watchlist.add(series.sourceId, series.series_id, 'series');
+            }
+        } catch (err) {
+            console.error('Error toggling watchlist:', err);
+            if (isWl) {
+                this.watchlistIds.add(key);
+                btn.classList.add('active');
+                if (iconSpan) iconSpan.innerHTML = Icons.watchlist;
+            } else {
+                this.watchlistIds.delete(key);
+                btn.classList.remove('active');
+                if (iconSpan) iconSpan.innerHTML = Icons.watchlistOutline;
+            }
         }
     }
 

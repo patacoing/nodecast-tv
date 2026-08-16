@@ -2473,6 +2473,14 @@ kbd {
     right: 6px;
   }
 
+  .movie-poster .watchlist-btn,
+  .series-poster .watchlist-btn {
+    width: 28px;
+    height: 28px;
+    top: 6px;
+    left: 6px;
+  }
+
   .fav-icon {
     font-size: 1rem;
   }
@@ -2800,6 +2808,43 @@ kbd {
   border: 1px solid rgba(255, 255, 255, 0.3);
   color: rgba(255, 255, 255, 0.9);
   opacity: 1;
+}
+
+/* Watchlist button on movie/series cards */
+.watchlist-btn {
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+  z-index: 5;
+  padding: 0;
+}
+
+.movie-poster .watchlist-btn,
+.series-poster .watchlist-btn {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.movie-poster .watchlist-btn.active,
+.series-poster .watchlist-btn.active {
+  color: var(--color-primary);
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.movie-poster .watchlist-btn:hover,
+.series-poster .watchlist-btn:hover {
+  background: rgba(0, 0, 0, 0.7);
+  border-color: var(--color-primary);
 }
 
 /* Channel List Favorites */
@@ -4706,6 +4751,107 @@ kbd {
 
 .dashboard-card:hover .play-icon-overlay {
   opacity: 1;
+}
+
+.card-delete-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.65);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+  z-index: 3;
+  padding: 0;
+}
+
+.card-delete-btn svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+.dashboard-card:hover .card-delete-btn {
+  opacity: 1;
+}
+
+.card-delete-btn:hover {
+  background: rgba(220, 38, 38, 0.85);
+}
+
+/* Action buttons on recent cards (fav + watchlist) */
+.card-action-btn {
+  position: absolute;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.65);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  z-index: 3;
+  padding: 0;
+}
+
+.card-action-btn svg {
+  width: 16px;
+  height: 16px;
+  pointer-events: none;
+}
+
+.card-action-btn span {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.card-action-btn span svg {
+  width: 16px;
+  height: 16px;
+}
+
+.dashboard-card:hover .card-action-btn {
+  opacity: 1;
+}
+
+.card-fav-btn {
+  top: 8px;
+  right: 8px;
+}
+
+.card-wl-btn {
+  top: 8px;
+  left: 8px;
+}
+
+.wl-remove-btn {
+  top: 8px;
+  right: 8px;
+}
+
+.card-action-btn.active {
+  color: var(--color-accent);
+  background: rgba(0, 0, 0, 0.75);
+  opacity: 1;
+}
+
+.card-action-btn:hover {
+  background: rgba(99, 102, 241, 0.85);
+  color: white;
 }
 
 .card-info {
