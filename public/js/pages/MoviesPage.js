@@ -22,6 +22,7 @@ class MoviesPage {
         this.favoriteIds = new Set(); // Track favorite movie IDs
         this.showFavoritesOnly = false;
         this.watchlistIds = new Set(); // Track watchlist movie IDs
+        this.sortMode = null; // null | 'rating' | 'date'
 
         this.init();
     }
@@ -59,6 +60,25 @@ class MoviesPage {
             favBtn.classList.toggle('active', this.showFavoritesOnly);
             this.filterAndRender();
         });
+
+        // Sort buttons
+        const sortRatingBtn = document.getElementById('movies-sort-rating-btn');
+        const sortDateBtn = document.getElementById('movies-sort-date-btn');
+
+        sortRatingBtn?.addEventListener('click', () => {
+            this.sortMode = this.sortMode === 'rating' ? null : 'rating';
+            sortRatingBtn.classList.toggle('active', this.sortMode === 'rating');
+            sortDateBtn.classList.remove('active');
+            this.filterAndRender();
+        });
+
+        sortDateBtn?.addEventListener('click', () => {
+            this.sortMode = this.sortMode === 'date' ? null : 'date';
+            sortDateBtn.classList.toggle('active', this.sortMode === 'date');
+            sortRatingBtn.classList.remove('active');
+            this.filterAndRender();
+        });
+
     }
 
     async show() {
@@ -237,6 +257,14 @@ class MoviesPage {
             if (searchTerm && !m.name?.toLowerCase().includes(searchTerm)) return false;
             return true;
         });
+
+        // Apply sort
+        if (this.sortMode === 'rating') {
+            const validRating = r => { const v = parseFloat(r); return (isFinite(v) && v >= 0 && v <= 10) ? v : 0; };
+            this.filteredMovies.sort((a, b) => validRating(b.rating) - validRating(a.rating));
+        } else if (this.sortMode === 'date') {
+            this.filteredMovies.sort((a, b) => (b.added || '').localeCompare(a.added || ''));
+        }
 
         console.log(`[Movies] Displaying ${this.filteredMovies.length} of ${this.movies.length} movies`);
 

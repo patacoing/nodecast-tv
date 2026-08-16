@@ -26,6 +26,7 @@ class SeriesPage {
         this.favoriteIds = new Set(); // Track favorite series IDs
         this.showFavoritesOnly = false;
         this.watchlistIds = new Set(); // Track watchlist series IDs
+        this.sortMode = null; // null | 'rating' | 'date'
 
         this.init();
     }
@@ -68,6 +69,25 @@ class SeriesPage {
             favBtn.classList.toggle('active', this.showFavoritesOnly);
             this.filterAndRender();
         });
+
+        // Sort buttons
+        const sortRatingBtn = document.getElementById('series-sort-rating-btn');
+        const sortDateBtn = document.getElementById('series-sort-date-btn');
+
+        sortRatingBtn?.addEventListener('click', () => {
+            this.sortMode = this.sortMode === 'rating' ? null : 'rating';
+            sortRatingBtn.classList.toggle('active', this.sortMode === 'rating');
+            sortDateBtn.classList.remove('active');
+            this.filterAndRender();
+        });
+
+        sortDateBtn?.addEventListener('click', () => {
+            this.sortMode = this.sortMode === 'date' ? null : 'date';
+            sortDateBtn.classList.toggle('active', this.sortMode === 'date');
+            sortRatingBtn.classList.remove('active');
+            this.filterAndRender();
+        });
+
     }
 
     async show() {
@@ -249,6 +269,14 @@ class SeriesPage {
             if (searchTerm && !s.name?.toLowerCase().includes(searchTerm)) return false;
             return true;
         });
+
+        // Apply sort
+        if (this.sortMode === 'rating') {
+            const validRating = r => { const v = parseFloat(r); return (isFinite(v) && v >= 0 && v <= 10) ? v : 0; };
+            this.filteredSeries.sort((a, b) => validRating(b.rating) - validRating(a.rating));
+        } else if (this.sortMode === 'date') {
+            this.filteredSeries.sort((a, b) => (b.added || '').localeCompare(a.added || ''));
+        }
 
         console.log(`[Series] Displaying ${this.filteredSeries.length} of ${this.seriesList.length} series`);
 
