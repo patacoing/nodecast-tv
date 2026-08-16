@@ -208,11 +208,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        fullscreenContainer.removeAllViews()
-        webView.apply {
-            clearHistory()
-            (parent as? ViewGroup)?.removeView(this)
-            destroy()
+        // On first run onCreate hands off to SetupActivity and finishes before
+        // setContentView, so these views were never assigned - yet finish()
+        // still brings us here. Touching them unguarded killed the whole
+        // process, taking the setup screen down with it.
+        if (::fullscreenContainer.isInitialized) {
+            fullscreenContainer.removeAllViews()
+        }
+        if (::webView.isInitialized) {
+            webView.apply {
+                clearHistory()
+                (parent as? ViewGroup)?.removeView(this)
+                destroy()
+            }
         }
         super.onDestroy()
     }
