@@ -426,6 +426,9 @@ class VideoPlayer {
      * Toggle fullscreen mode (cross-browser including Safari)
      */
     toggleFullscreen() {
+        // Inside the Android TV wrapper this is a CSS-only affair
+        if (window.Fullscreen?.toggle(this.container)) return;
+
         const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
 
         if (isFullscreen) {

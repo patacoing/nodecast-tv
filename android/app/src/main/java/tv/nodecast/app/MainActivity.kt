@@ -79,6 +79,13 @@ class MainActivity : AppCompatActivity() {
         settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         settings.cacheMode = WebSettings.LOAD_DEFAULT
 
+        // Let the web app know it is running inside this wrapper. It uses the
+        // marker to lay fullscreen out in CSS rather than call the Fullscreen
+        // API: the activity already fills the screen, and going through
+        // onShowCustomView left the video surface at its previous size,
+        // painting the picture small in the top-left corner.
+        settings.userAgentString = settings.userAgentString + " NodeCastTV-Android/1"
+
         webView.webViewClient = NodeCastWebViewClient()
         webView.webChromeClient = NodeCastWebChromeClient()
     }

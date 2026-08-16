@@ -5076,3 +5076,44 @@ kbd {
 [data-dpad] {
   scroll-margin: 18px;
 }
+
+/* =====================================================
+   Fullscreen inside the Android TV wrapper
+
+   The wrapper bypasses the Fullscreen API (see dpad.js): its activity
+   already fills the screen, and routing through onShowCustomView left
+   the WebView's video surface at its pre-fullscreen size, painting the
+   picture in the top-left corner with black bands right and below.
+   These rules reproduce what :fullscreen did, as plain layout.
+   ===================================================== */
+
+.css-fullscreen {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 9999;
+  background: #000;
+}
+
+.css-fullscreen #video-player,
+.css-fullscreen #watch-video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.css-fullscreen .now-playing-overlay {
+  bottom: 80px;
+}
+
+.css-fullscreen .watch-bottom-bar {
+  padding-bottom: calc(var(--space-lg) + env(safe-area-inset-bottom, 0px));
+}
+
+.css-fullscreen .watch-top-bar {
+  padding-top: calc(var(--space-lg) + env(safe-area-inset-top, 0px));
+}

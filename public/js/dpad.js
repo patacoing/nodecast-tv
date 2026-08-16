@@ -370,4 +370,32 @@
         focusFirst,
         get keyboardMode() { return keyboardMode; }
     };
+
+    // ==========================================================
+    // Fullscreen inside the Android TV wrapper
+    // ==========================================================
+
+    // The wrapper appends this to its user agent. Its activity already fills
+    // the screen, so the Fullscreen API buys nothing there — and going
+    // through it leaves the WebView's video surface at its previous size,
+    // which paints the picture small in the top-left corner with black bands
+    // to the right and below. Lay it out in CSS instead.
+    const inAndroidWrapper = / NodeCastTV-Android\//.test(navigator.userAgent);
+
+    window.Fullscreen = {
+        inAndroidWrapper,
+
+        isOn(element) {
+            return inAndroidWrapper
+                ? !!element?.classList.contains('css-fullscreen')
+                : !!(document.fullscreenElement || document.webkitFullscreenElement);
+        },
+
+        /** Returns true when it handled the toggle itself. */
+        toggle(element) {
+            if (!inAndroidWrapper || !element) return false;
+            element.classList.toggle('css-fullscreen');
+            return true;
+        }
+    };
 })();

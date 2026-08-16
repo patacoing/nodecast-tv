@@ -724,6 +724,10 @@ class WatchPage {
 
     toggleFullscreen() {
         const container = document.querySelector('.watch-video-section');
+
+        // Inside the Android TV wrapper this is a CSS-only affair
+        if (window.Fullscreen?.toggle(container)) return;
+
         const isFullscreen = document.fullscreenElement || document.webkitFullscreenElement;
 
         if (isFullscreen) {
