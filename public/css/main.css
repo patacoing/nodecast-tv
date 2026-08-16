@@ -5002,3 +5002,57 @@ kbd {
     max-width: 70px;
   }
 }
+/* =====================================================
+   D-pad / keyboard focus
+   Required for Android TV remotes: without a visible focus
+   ring there is no way to tell what is selected.
+   ===================================================== */
+
+.movie-card:focus-visible,
+.series-card:focus-visible,
+.dashboard-card:focus-visible,
+.watch-recommended-card:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: var(--radius-md);
+  transform: scale(1.06);
+  z-index: 10;
+}
+
+.channel-item:focus-visible,
+.episode-item:focus-visible,
+.watch-episode-item:focus-visible,
+.season-header:focus-visible,
+.watch-season-header:focus-visible,
+.group-header:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: -3px;
+  background: var(--color-bg-hover);
+}
+
+.btn:focus-visible,
+.watch-btn:focus-visible,
+.nav-link:focus-visible,
+.captions-option:focus-visible,
+.overflow-menu-item:focus-visible,
+.source-select:focus-visible,
+.search-input:focus-visible,
+.favorite-btn:focus-visible,
+.watchlist-btn:focus-visible,
+.card-action-btn:focus-visible,
+.card-delete-btn:focus-visible,
+.scroll-arrow:focus-visible {
+  outline: 3px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Card action buttons are hover-revealed; focus must reveal them too */
+.card-action-btn:focus-visible,
+.card-delete-btn:focus-visible {
+  opacity: 1;
+}
+
+/* Keep the focused element above its neighbours while scaled */
+[data-dpad]:focus {
+  position: relative;
+}

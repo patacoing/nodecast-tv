@@ -1,10 +1,11 @@
-const CACHE_NAME = 'nodecast-shell-v4';
+const CACHE_NAME = 'nodecast-shell-v5';
 
 const SHELL_ASSETS = [
     '/',
     '/css/main.css',
     '/js/app.js',
     '/js/api.js',
+    '/js/dpad.js',
     '/js/pages/HomePage.js',
     '/js/pages/LivePage.js',
     '/js/pages/MoviesPage.js',

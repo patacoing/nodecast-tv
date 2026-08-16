@@ -1027,6 +1027,11 @@ class WatchPage {
     }
 
     hideOverlay() {
+        // Never hide the controls while one of them is focused (D-pad usage)
+        if (this.overlay?.contains(document.activeElement)) {
+            this.startOverlayTimer();
+            return;
+        }
         if (!this.video?.paused) {
             this.overlay?.classList.add('hidden');
             this.overlayVisible = false;

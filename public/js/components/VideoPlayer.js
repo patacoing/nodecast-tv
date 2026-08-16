@@ -372,6 +372,11 @@ class VideoPlayer {
         };
 
         const hideOverlay = () => {
+            // Never hide the controls while one of them is focused (D-pad usage)
+            if (this.controlsOverlay.contains(document.activeElement)) {
+                resetOverlayTimer();
+                return;
+            }
             if (!this.video.paused) {
                 this.controlsOverlay.classList.add('hidden');
                 this.container.style.cursor = 'none';
