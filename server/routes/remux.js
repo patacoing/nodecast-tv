@@ -5,16 +5,16 @@ const db = require('../db');
 
 /**
  * Remux stream (container conversion only)
- * GET /api/remux?url=...
- * 
+ * GET /api/remux?url=...&audioCodec=aac
+ *
  * Remuxes MPEG-TS to fragmented MP4 for browser playback.
  * This is a lightweight operation - no video/audio re-encoding.
  * Use this for raw .ts streams that browsers can't play directly.
- * 
+ *
  * Note: This does NOT fix Dolby/AC3 audio issues - use /api/transcode for that.
  */
 router.get('/', async (req, res) => {
-    const { url } = req.query;
+    const { url, audioCodec } = req.query;
     if (!url) {
         return res.status(400).json({ error: 'URL parameter is required' });
     }
@@ -27,6 +27,7 @@ router.get('/', async (req, res) => {
 
     console.log(`[Remux] Starting remux for: ${url}`);
     console.log(`[Remux] Using User-Agent: ${settings.userAgentPreset}`);
+    if (audioCodec) console.log(`[Remux] Audio codec hint: ${audioCodec}`);
 
     // FFmpeg arguments for pure remux (no encoding)
     // Very lightweight - just changes container from TS to fragmented MP4
@@ -61,9 +62,9 @@ router.get('/', async (req, res) => {
         '-c', 'copy',
         // Ensure extradata is correctly extracted/converted (fixes Annex B -> AVCC issues in Firefox)
         '-bsf:v', 'dump_extra',
-        // NOTE: We intentionally do NOT use -bsf:a aac_adtstoasc here
-        // That filter only works for AAC audio and breaks AC3/EAC3/MP3.
-        // If AAC audio from MPEG-TS fails in MP4, use /api/transcode instead.
+        // aac_adtstoasc converts ADTS AAC (used in MPEG-TS) to ASC format required by MP4 container.
+        // Only safe for AAC - breaks AC3/EAC3/MP3, so applied conditionally.
+        ...(audioCodec === 'aac' ? ['-bsf:a', 'aac_adtstoasc'] : []),
         // Handle timestamp discontinuities at output
         '-fps_mode', 'passthrough',
         '-max_muxing_queue_size', '1024',

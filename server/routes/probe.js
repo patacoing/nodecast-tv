@@ -125,6 +125,8 @@ function analyzeProbeResult(probeResult, url) {
 
     const compatible = !needsTranscode && !needsRemux;
 
+    const durationSec = parseFloat(format.duration);
+
     return {
         video: videoCodec,
         audio: audioCodec,
@@ -135,7 +137,8 @@ function analyzeProbeResult(probeResult, url) {
         compatible: compatible,
         needsRemux: needsRemux,
         needsTranscode: needsTranscode,
-        subtitles: subtitles
+        subtitles: subtitles,
+        duration: isFinite(durationSec) && durationSec > 0 ? Math.round(durationSec) : null
     };
 }
 

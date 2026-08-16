@@ -94,6 +94,9 @@ class WatchPage {
         // Watch history
         this.historyInterval = null;
 
+        // Duration from probe (used when video.duration is Infinity during HLS transcoding)
+        this.probeDuration = null;
+
         this.init();
     }
 
@@ -184,6 +187,7 @@ class WatchPage {
 
         // Video events
         this.video?.addEventListener('timeupdate', () => this.updateProgress());
+        this.video?.addEventListener('durationchange', () => this.updateDurationDisplay());
         this.video?.addEventListener('loadedmetadata', () => this.onMetadataLoaded());
         this.video?.addEventListener('play', () => this.onPlay());
         this.video?.addEventListener('pause', () => this.onPause());
@@ -445,6 +449,13 @@ class WatchPage {
                 this.currentStreamInfo = info;
                 this.updateQualityBadge();
 
+                // Pre-fill duration from probe so the user can seek immediately
+                if (info.duration) {
+                    this.probeDuration = info.duration;
+                    if (this.durationEl) this.durationEl.textContent = this.formatTime(info.duration);
+                    if (this.timeTotal) this.timeTotal.textContent = this.formatTime(info.duration);
+                }
+
                 if (info.needsTranscode || settings.upscaleEnabled) {
                     console.log(`[WatchPage] Auto: Using HLS transcode session (${settings.upscaleEnabled ? 'Upscaling' : 'Incompatible audio/video'})`);
 
@@ -470,7 +481,7 @@ class WatchPage {
                     // TODO: Move remux to session logic if seeking is needed for TS files
                     console.log('[WatchPage] Auto: Using remux (.ts container)');
                     this.updateTranscodeStatus('remuxing', 'Remux (Auto)');
-                    const finalUrl = `/api/remux?url=${encodeURIComponent(url)}`;
+                    const finalUrl = `/api/remux?url=${encodeURIComponent(url)}&audioCodec=${encodeURIComponent(info.audio || '')}`;
                     this.video.src = finalUrl;
                     this.video.play().catch(e => {
                         if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
@@ -528,7 +539,14 @@ class WatchPage {
         if (settings.forceRemux && isRawTs) {
             console.log('[WatchPage] Force Remux enabled');
             this.updateTranscodeStatus('remuxing', 'Remux (Force)');
-            const finalUrl = `/api/remux?url=${encodeURIComponent(url)}`;
+            let forceRemuxAudioCodec = '';
+            try {
+                const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
+                const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
+                const info = await probeRes.json();
+                forceRemuxAudioCodec = info.audio || '';
+            } catch (e) { console.warn('[WatchPage] Probe failed for force remux'); }
+            const finalUrl = `/api/remux?url=${encodeURIComponent(url)}&audioCodec=${encodeURIComponent(forceRemuxAudioCodec)}`;
             this.video.src = finalUrl;
             this.video.play().catch(e => {
                 if (e.name !== 'AbortError') console.error('[WatchPage] Autoplay error:', e);
@@ -654,15 +672,25 @@ class WatchPage {
         }
     }
 
+    getEffectiveDuration() {
+        if (this.video) {
+            const d = this.video.duration;
+            if (isFinite(d) && d > 0) return d;
+        }
+        return this.probeDuration || 0;
+    }
+
     skip(seconds) {
         if (this.video) {
-            this.video.currentTime = Math.max(0, Math.min(this.video.currentTime + seconds, this.video.duration || 0));
+            const dur = this.getEffectiveDuration();
+            this.video.currentTime = Math.max(0, Math.min(this.video.currentTime + seconds, dur));
         }
     }
 
     seek(percent) {
-        if (this.video && this.video.duration) {
-            this.video.currentTime = (percent / 100) * this.video.duration;
+        const dur = this.getEffectiveDuration();
+        if (this.video && dur > 0) {
+            this.video.currentTime = (percent / 100) * dur;
         }
     }
 
@@ -768,11 +796,14 @@ class WatchPage {
     // === UI Updates ===
 
     updateProgress() {
-        if (!this.video || !this.video.duration) return;
+        if (!this.video) return;
+        const dur = this.getEffectiveDuration();
+        if (!dur) return;
 
-        const percent = (this.video.currentTime / this.video.duration) * 100;
+        const percent = (this.video.currentTime / dur) * 100;
         this.progressSlider.value = percent;
         this.timeCurrent.textContent = this.formatTime(this.video.currentTime);
+        if (this.timeTotal) this.timeTotal.textContent = this.formatTime(dur);
 
         // Show "Up Next" panel early for series (like streaming services do during credits)
         // Only show if auto-play next episode is enabled
@@ -797,6 +828,17 @@ class WatchPage {
         }
     }
 
+    updateDurationDisplay() {
+        if (!this.video) return;
+        const duration = this.video.duration;
+        if (isFinite(duration) && duration > 0) {
+            if (this.durationEl) this.durationEl.textContent = this.formatTime(duration);
+            if (this.timeTotal) this.timeTotal.textContent = this.formatTime(duration);
+            // Promote to probeDuration so seek/skip use the real value
+            this.probeDuration = duration;
+        }
+    }
+
     onMetadataLoaded() {
         // Detect resolution
         if (this.video && this.video.videoHeight > 0) {
@@ -806,6 +848,9 @@ class WatchPage {
             };
             this.updateQualityBadge();
         }
+
+        // Update duration display immediately if already known
+        this.updateDurationDisplay();
 
         // Handle resumption
         if (this.resumeTime > 0 && this.video) {
