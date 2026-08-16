@@ -132,6 +132,17 @@
             ? c.to.top <= nearest.to.bottom && c.to.bottom >= nearest.to.top
             : c.to.left <= nearest.to.right && c.to.right >= nearest.to.left);
 
+        // Moving into a horizontal carousel enters it at its first item. The
+        // row is a list, so its natural entry point is the start, not
+        // whichever card happens to sit below where we came from — and the
+        // row may well be scrolled somewhere else entirely. `band` is in DOM
+        // order, which for a carousel is left-to-right.
+        // Grids have no .horizontal-scroll ancestor and keep their column.
+        if (vertical) {
+            const firstInRow = band.find(c => c.el.closest('.horizontal-scroll'));
+            if (firstInRow) return firstInRow.el;
+        }
+
         // Within the band, take the closest on the cross axis.
         let best = null;
         let bestCross = Infinity;
