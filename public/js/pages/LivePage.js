@@ -103,6 +103,11 @@ class LivePage {
 
     hide() {
         document.removeEventListener('keydown', this.handleKeydown);
+
+        // Leaving the Live TV page stops the stream. A live channel otherwise
+        // keeps running in the background, and keeps the server busy
+        // proxying/transcoding it for nothing.
+        this.app.player?.stop?.();
     }
 }
 

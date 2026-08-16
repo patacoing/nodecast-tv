@@ -377,6 +377,11 @@ class VideoPlayer {
                 resetOverlayTimer();
                 return;
             }
+            // A remote has no pointer to bring the controls back once they are
+            // gone, so keep them on screen while navigating with keys.
+            if (window.DPad?.keyboardMode) {
+                return;
+            }
             if (!this.video.paused) {
                 this.controlsOverlay.classList.add('hidden');
                 this.container.style.cursor = 'none';

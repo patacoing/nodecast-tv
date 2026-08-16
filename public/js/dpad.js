@@ -159,6 +159,13 @@
         ArrowUp: 'up'
     };
 
+    // Which input device the user is currently driving the UI with. A remote
+    // has no pointer, so anything that relies on hover or on "move the mouse
+    // to bring it back" has to behave differently in keyboard mode.
+    let keyboardMode = false;
+
+    document.addEventListener('pointerdown', () => { keyboardMode = false; }, true);
+
     function isTextEntry(el) {
         if (!el) return false;
         const tag = el.tagName;
@@ -206,6 +213,8 @@
         const dir = DIRECTIONS[e.key];
         const isEnter = e.key === 'Enter' || e.key === ' ';
         if (!dir && !isEnter) return;
+
+        keyboardMode = true;
 
         const active = document.activeElement;
 
@@ -268,6 +277,10 @@
         start();
     }
 
-    // Exposed for the player overlay auto-hide guard
-    window.DPad = { isNavigable, focusFirst };
+    // Exposed for the player overlay auto-hide guards
+    window.DPad = {
+        isNavigable,
+        focusFirst,
+        get keyboardMode() { return keyboardMode; }
+    };
 })();
