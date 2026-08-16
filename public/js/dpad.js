@@ -40,10 +40,6 @@
 
     const FOCUSABLE_SELECTOR = CARD_SELECTOR + ',' + NATIVE_SELECTOR;
 
-    // Cross-axis misalignment weight, and penalty for candidates that do not
-    // overlap the source on the cross axis (i.e. not in the same row/column).
-    const CROSS_WEIGHT = 3;
-    const NO_OVERLAP_PENALTY = 3000;
 
     // ==========================================================
     // Hydration: make card-like elements focusable
@@ -94,48 +90,58 @@
         };
     }
 
-    /**
-     * Distance score from `from` to `to` in `dir`. Lower is better,
-     * Infinity means the candidate is not in that direction at all.
-     */
-    function score(from, to, dir) {
-        let primary, cross, overlap;
-
-        if (dir === 'right') {
-            primary = to.left - from.right;
-            cross = Math.abs(to.cy - from.cy);
-            overlap = Math.min(from.bottom, to.bottom) - Math.max(from.top, to.top);
-        } else if (dir === 'left') {
-            primary = from.left - to.right;
-            cross = Math.abs(to.cy - from.cy);
-            overlap = Math.min(from.bottom, to.bottom) - Math.max(from.top, to.top);
-        } else if (dir === 'down') {
-            primary = to.top - from.bottom;
-            cross = Math.abs(to.cx - from.cx);
-            overlap = Math.min(from.right, to.right) - Math.max(from.left, to.left);
-        } else {
-            primary = from.top - to.bottom;
-            cross = Math.abs(to.cx - from.cx);
-            overlap = Math.min(from.right, to.right) - Math.max(from.left, to.left);
-        }
-
-        // Must actually lie in that direction (small tolerance for rounding)
-        if (primary < -1) return Infinity;
-
-        return Math.max(primary, 0) + cross * CROSS_WEIGHT + (overlap > 0 ? 0 : NO_OVERLAP_PENALTY);
+    /** Gap between `from` and `to` along the axis of travel. */
+    function primaryDistance(from, to, dir) {
+        if (dir === 'right') return to.left - from.right;
+        if (dir === 'left') return from.left - to.right;
+        if (dir === 'down') return to.top - from.bottom;
+        return from.top - to.bottom;
     }
 
+    /**
+     * Move to the neighbour in `dir`, in two stages: first decide which row
+     * (or column) we are moving into, then which element within it.
+     *
+     * The two stages matter. Scoring distance and alignment together lets a
+     * far but perfectly aligned element beat a near but slightly offset one,
+     * which made the dashboard jump over a whole section whenever the next
+     * section held fewer items than the current one.
+     */
     function findNext(current, dir) {
         const from = boxOf(current);
-        let best = null;
-        let bestScore = Infinity;
+        const vertical = dir === 'down' || dir === 'up';
 
+        const ahead = [];
         for (const el of candidates()) {
             if (el === current) continue;
-            const s = score(from, boxOf(el), dir);
-            if (s < bestScore) {
-                bestScore = s;
-                best = el;
+            const to = boxOf(el);
+            // Must lie in that direction (small tolerance for rounding)
+            if (primaryDistance(from, to, dir) < -1) continue;
+            ahead.push({ el, to, primary: Math.max(primaryDistance(from, to, dir), 0) });
+        }
+        if (!ahead.length) return null;
+
+        // The closest element defines the band we land in; everything
+        // overlapping it on the axis of travel is in that same row/column.
+        let nearest = ahead[0];
+        for (const c of ahead) {
+            if (c.primary < nearest.primary) nearest = c;
+        }
+
+        const band = ahead.filter(c => vertical
+            ? c.to.top <= nearest.to.bottom && c.to.bottom >= nearest.to.top
+            : c.to.left <= nearest.to.right && c.to.right >= nearest.to.left);
+
+        // Within the band, take the closest on the cross axis.
+        let best = null;
+        let bestCross = Infinity;
+        for (const c of band) {
+            const cross = vertical
+                ? Math.abs(c.to.cx - from.cx)
+                : Math.abs(c.to.cy - from.cy);
+            if (cross < bestCross) {
+                bestCross = cross;
+                best = c.el;
             }
         }
         return best;
