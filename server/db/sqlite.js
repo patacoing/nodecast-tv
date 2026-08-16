@@ -117,6 +117,21 @@ function initSchema() {
         CREATE INDEX IF NOT EXISTS idx_favorites_user_type ON favorites(user_id, item_type);
     `);
 
+    // Watchlist (per-user)
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS watchlist (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            source_id INTEGER NOT NULL,
+            item_id TEXT NOT NULL,
+            item_type TEXT NOT NULL,
+            added_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(user_id, source_id, item_id, item_type)
+        );
+        CREATE INDEX IF NOT EXISTS idx_watchlist_user ON watchlist(user_id);
+        CREATE INDEX IF NOT EXISTS idx_watchlist_user_type ON watchlist(user_id, item_type);
+    `);
+
     // Watch History (per-user)
     db.exec(`
         CREATE TABLE IF NOT EXISTS watch_history (
@@ -209,8 +224,79 @@ const favorites = {
     }
 };
 
+// ============================================================
+// Watchlist CRUD Operations
+// ============================================================
+const watchlist = {
+    getAll(userId, sourceId = null, itemType = null) {
+        const db = getDb();
+        let sql = 'SELECT * FROM watchlist WHERE user_id = ?';
+        const params = [userId];
+
+        if (sourceId) {
+            sql += ' AND source_id = ?';
+            params.push(sourceId);
+        }
+        if (itemType) {
+            sql += ' AND item_type = ?';
+            params.push(itemType);
+        }
+
+        sql += ' ORDER BY added_at DESC';
+        return db.prepare(sql).all(...params);
+    },
+
+    add(userId, sourceId, itemId, itemType = 'movie') {
+        const db = getDb();
+        const stmt = db.prepare(`
+            INSERT OR IGNORE INTO watchlist (user_id, source_id, item_id, item_type)
+            VALUES (?, ?, ?, ?)
+        `);
+        const result = stmt.run(userId, sourceId, itemId, itemType);
+        return result.changes > 0;
+    },
+
+    remove(userId, sourceId, itemId, itemType = 'movie') {
+        const db = getDb();
+        const stmt = db.prepare(`
+            DELETE FROM watchlist
+            WHERE user_id = ? AND source_id = ? AND item_id = ? AND item_type = ?
+        `);
+        const result = stmt.run(userId, sourceId, itemId, itemType);
+        return result.changes > 0;
+    },
+
+    isInWatchlist(userId, sourceId, itemId, itemType = 'movie') {
+        const db = getDb();
+        const row = db.prepare(`
+            SELECT 1 FROM watchlist
+            WHERE user_id = ? AND source_id = ? AND item_id = ? AND item_type = ?
+        `).get(userId, sourceId, itemId, itemType);
+        return !!row;
+    },
+
+    getItemsWithData(userId) {
+        const db = getDb();
+        const rows = db.prepare(`
+            SELECT w.source_id, w.item_id, w.item_type, w.added_at,
+                   p.name, p.stream_icon, p.rating, p.year, p.data
+            FROM watchlist w
+            LEFT JOIN playlist_items p
+                ON p.source_id = w.source_id AND p.item_id = w.item_id AND p.type = w.item_type
+            WHERE w.user_id = ?
+            ORDER BY w.added_at DESC
+        `).all(userId);
+
+        return rows.map(row => ({
+            ...row,
+            data: row.data ? JSON.parse(row.data) : null
+        }));
+    }
+};
+
 module.exports = {
     getDb,
     initSchema,
-    favorites
+    favorites,
+    watchlist
 };

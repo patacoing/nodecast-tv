@@ -174,6 +174,7 @@ app.use('/api/sources', require('./routes/sources'));
 app.use('/api/proxy', require('./routes/proxy'));
 app.use('/api/channels', require('./routes/channels'));
 app.use('/api/favorites', require('./routes/favorites'));
+app.use('/api/watchlist', require('./routes/watchlist'));
 app.use('/api/transcode', require('./routes/transcode'));
 app.use('/api/remux', require('./routes/remux'));
 app.use('/api/probe', require('./routes/probe'));

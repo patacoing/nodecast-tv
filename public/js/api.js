@@ -95,6 +95,25 @@ const API = {
             API.request('GET', `/favorites/check?sourceId=${sourceId}&itemId=${itemId}&itemType=${itemType}`)
     },
 
+    // Watchlist
+    watchlist: {
+        getAll: (sourceId = null, itemType = null) => {
+            let url = '/watchlist';
+            const params = [];
+            if (sourceId) params.push(`sourceId=${sourceId}`);
+            if (itemType) params.push(`itemType=${itemType}`);
+            if (params.length) url += '?' + params.join('&');
+            return API.request('GET', url);
+        },
+        add: (sourceId, itemId, itemType = 'movie') =>
+            API.request('POST', '/watchlist', { sourceId, itemId, itemType }),
+        remove: (sourceId, itemId, itemType = 'movie') =>
+            API.request('DELETE', '/watchlist', { sourceId, itemId, itemType }),
+        check: (sourceId, itemId, itemType = 'movie') =>
+            API.request('GET', `/watchlist/check?sourceId=${sourceId}&itemId=${itemId}&itemType=${itemType}`),
+        items: () => API.request('GET', '/watchlist/items')
+    },
+
     // Proxy
     proxy: {
         // Xtream
