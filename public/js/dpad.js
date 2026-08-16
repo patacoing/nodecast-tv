@@ -100,7 +100,14 @@
     }
 
     function candidates() {
-        return Array.from(document.querySelectorAll(FOCUSABLE_SELECTOR)).filter(isVisible);
+        // While something is fullscreen, everything else is covered but still
+        // sits in the page with perfectly valid coordinates. Without this the
+        // selection wanders out of the player onto the navbar behind it and
+        // simply appears to do nothing.
+        const root = document.querySelector('.css-fullscreen')
+            || document.fullscreenElement
+            || document;
+        return Array.from(root.querySelectorAll(FOCUSABLE_SELECTOR)).filter(isVisible);
     }
 
     function boxOf(el) {
@@ -154,11 +161,14 @@
             let best = null;
             let bestScore = Infinity;
             for (const c of (sameRow.length ? sameRow : ahead)) {
-                // On the row, distance alone decides. When leaving it, how far
-                // off we land vertically counts just as much.
+                // On the row, the gap alone decides. When leaving it, plain
+                // straight-line distance is the honest measure: adding the
+                // axes up instead favoured whatever sat closest to the edge
+                // of the screen, which sent the selection to the navbar
+                // rather than to the sidebar's expand button.
                 const s = sameRow.length
                     ? c.primary
-                    : c.primary + Math.abs(c.to.cy - from.cy);
+                    : Math.hypot(c.to.cx - from.cx, c.to.cy - from.cy);
                 if (s < bestScore) {
                     bestScore = s;
                     best = c;
