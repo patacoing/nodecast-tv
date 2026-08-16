@@ -138,20 +138,31 @@
             const to = boxOf(el);
             // Must lie in that direction (small tolerance for rounding)
             if (primaryDistance(from, to, dir) < -1) continue;
-            // A horizontal move stays on the row it started from. Otherwise
-            // anything lower down but slightly to the right wins on distance
-            // alone — pressing right on a player button jumped to a
-            // recommended movie below instead of the next button in the bar.
-            if (!vertical && !(to.top < from.bottom && to.bottom > from.top)) continue;
             ahead.push({ el, to, primary: Math.max(primaryDistance(from, to, dir), 0) });
         }
         if (!ahead.length) return null;
 
-        // On a row there is nothing more to decide: take the nearest.
         if (!vertical) {
-            let best = ahead[0];
-            for (const c of ahead) {
-                if (c.primary < best.primary) best = c;
+            // Prefer whatever shares the row we started from, so that moving
+            // along the player bar cannot fall into the recommended movies
+            // sitting lower down. When the row holds nothing further in that
+            // direction, leaving it is the only sensible move — that is how
+            // you get from the Live TV channel list, a tall column on the
+            // left, to the player controls pinned at the bottom right.
+            const sameRow = ahead.filter(c => c.to.top < from.bottom && c.to.bottom > from.top);
+
+            let best = null;
+            let bestScore = Infinity;
+            for (const c of (sameRow.length ? sameRow : ahead)) {
+                // On the row, distance alone decides. When leaving it, how far
+                // off we land vertically counts just as much.
+                const s = sameRow.length
+                    ? c.primary
+                    : c.primary + Math.abs(c.to.cy - from.cy);
+                if (s < bestScore) {
+                    bestScore = s;
+                    best = c;
+                }
             }
             return best.el;
         }
