@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The NodeCast TV server is normally reached over plain HTTP on the local
+  network (docker-compose maps host port 80 -> container 3000), so we must
+  allow cleartext traffic to any host. This is a self-hosted, LAN-facing
+  app, not something distributed publicly, so this tradeoff is acceptable.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

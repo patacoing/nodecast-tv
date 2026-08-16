@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="48dp">
+
+    <TextView
+        android:id="@+id/setup_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/setup_title"
+        android:textColor="@color/brand"
+        android:textSize="32sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/setup_subtitle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:layout_marginBottom="32dp"
+        android:text="@string/setup_subtitle"
+        android:textColor="@color/text_secondary"
+        android:textSize="16sp" />
+
+    <EditText
+        android:id="@+id/server_url_input"
+        android:layout_width="360dp"
+        android:layout_height="wrap_content"
+        android:autofillHints="url"
+        android:focusable="true"
+        android:focusableInTouchMode="true"
+        android:hint="@string/setup_hint"
+        android:imeOptions="actionDone"
+        android:inputType="textUri"
+        android:maxLines="1"
+        android:nextFocusDown="@id/save_button"
+        android:padding="12dp"
+        android:selectAllOnFocus="true"
+        android:textColor="@color/text_primary"
+        android:textColorHint="@color/text_secondary" />
+
+    <Button
+        android:id="@+id/save_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:focusable="true"
+        android:nextFocusUp="@id/server_url_input"
+        android:text="@string/setup_save" />
+
+</LinearLayout>

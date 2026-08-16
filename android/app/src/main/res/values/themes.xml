@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Base application theme: no action bar, dark background matching the web app -->
+    <style name="Theme.NodeCastTV" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/background</item>
+        <item name="android:statusBarColor">@color/background</item>
+        <item name="android:navigationBarColor">@color/background</item>
+        <item name="colorPrimary">@color/brand</item>
+        <item name="colorPrimaryDark">@color/background</item>
+        <item name="colorAccent">@color/brand</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+</resources>

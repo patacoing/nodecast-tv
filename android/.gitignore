@@ -1,0 +1,27 @@
+# Gradle
+.gradle/
+build/
+app/build/
+
+# Local configuration (SDK path etc.), machine-specific
+local.properties
+
+# Gradle wrapper jar is binary and regenerated locally / by Android Studio
+gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+.DS_Store
+
+# Signing
+*.jks
+*.keystore
+
+# Captures & profiling
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Gradle user home created by containerised builds
+.gradle-home/
