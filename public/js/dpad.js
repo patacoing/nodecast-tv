@@ -138,20 +138,33 @@
             const to = boxOf(el);
             // Must lie in that direction (small tolerance for rounding)
             if (primaryDistance(from, to, dir) < -1) continue;
+            // A horizontal move stays on the row it started from. Otherwise
+            // anything lower down but slightly to the right wins on distance
+            // alone — pressing right on a player button jumped to a
+            // recommended movie below instead of the next button in the bar.
+            if (!vertical && !(to.top < from.bottom && to.bottom > from.top)) continue;
             ahead.push({ el, to, primary: Math.max(primaryDistance(from, to, dir), 0) });
         }
         if (!ahead.length) return null;
 
-        // The closest element defines the band we land in; everything
-        // overlapping it on the axis of travel is in that same row/column.
+        // On a row there is nothing more to decide: take the nearest.
+        if (!vertical) {
+            let best = ahead[0];
+            for (const c of ahead) {
+                if (c.primary < best.primary) best = c;
+            }
+            return best.el;
+        }
+
+        // Vertical move: the closest element decides which row we land in,
+        // and everything vertically overlapping it belongs to that same row.
         let nearest = ahead[0];
         for (const c of ahead) {
             if (c.primary < nearest.primary) nearest = c;
         }
 
-        const band = ahead.filter(c => vertical
-            ? c.to.top <= nearest.to.bottom && c.to.bottom >= nearest.to.top
-            : c.to.left <= nearest.to.right && c.to.right >= nearest.to.left);
+        const band = ahead.filter(c =>
+            c.to.top <= nearest.to.bottom && c.to.bottom >= nearest.to.top);
 
         // Moving into a horizontal carousel enters it at its first item. The
         // row is a list, so its natural entry point is the start, not
@@ -159,18 +172,14 @@
         // row may well be scrolled somewhere else entirely. `band` is in DOM
         // order, which for a carousel is left-to-right.
         // Grids have no .horizontal-scroll ancestor and keep their column.
-        if (vertical) {
-            const firstInRow = band.find(c => c.el.closest('.horizontal-scroll'));
-            if (firstInRow) return firstInRow.el;
-        }
+        const firstInRow = band.find(c => c.el.closest('.horizontal-scroll'));
+        if (firstInRow) return firstInRow.el;
 
-        // Within the band, take the closest on the cross axis.
+        // Within that row, take the closest horizontally.
         let best = null;
         let bestCross = Infinity;
         for (const c of band) {
-            const cross = vertical
-                ? Math.abs(c.to.cx - from.cx)
-                : Math.abs(c.to.cy - from.cy);
+            const cross = Math.abs(c.to.cx - from.cx);
             if (cross < bestCross) {
                 bestCross = cross;
                 best = c.el;
