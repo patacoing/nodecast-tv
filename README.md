@@ -133,6 +133,18 @@ OIDC_CALLBACK_URL=http://localhost:3000/api/auth/oidc/callback # Adjust for your
 
 **Note:** New users signing in via SSO are automatically assigned the **Viewer** role. You must manually promote them to Admin if desired.
 
+### Session Length
+
+Sign-ins last a year by default, so a TV running the Android wrapper does not
+ask for a password typed on an on-screen keyboard every day. Shorten it if the
+server is reachable from the internet — there is no refresh or revocation
+mechanism, and the only way to invalidate an issued token is to change
+`JWT_SECRET`, which signs every user out.
+
+```env
+JWT_EXPIRY=30d # any value the `ms` library understands: 12h, 30d, 365d...
+```
+
 ### Usage
 
 1.  Go to **Settings** -> **Content Sources**.

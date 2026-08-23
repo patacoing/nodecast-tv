@@ -12,7 +12,14 @@ const { Strategy: LocalStrategy } = require('passport-local');
 
 // JWT Secret - In production, use environment variable
 const JWT_SECRET = process.env.JWT_SECRET || 'nodecast-tv-secret-key-change-in-production';
-const JWT_EXPIRY = '24h';
+
+// A TV has no keyboard: every expiry means typing a username and a password
+// on an on-screen keyboard with a remote, one letter at a time. A day was far
+// too short for that. There is no refresh or revocation mechanism, so a stolen
+// token stays valid for the whole window and the only way to invalidate one is
+// to change JWT_SECRET, which signs everybody out. Shorten this if the server
+// is reachable from the internet.
+const JWT_EXPIRY = process.env.JWT_EXPIRY || '365d';
 
 /**
  * Hash password using bcrypt
