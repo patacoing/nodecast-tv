@@ -150,6 +150,52 @@ function initSchema() {
         CREATE INDEX IF NOT EXISTS idx_history_user_item ON watch_history(user_id, item_id);
     `);
 
+    // TMDB metadata, one row per work rather than per catalogue entry.
+    // A provider renumbers its stream ids from time to time and
+    // purgeStaleItems then drops the playlist_items row; keeping the
+    // metadata here means only the link is lost, never the download. The
+    // same work also shows up several times (VF/VOSTFR/4K duplicates,
+    // several sources) and is served by a single row.
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS tmdb_titles (
+            kind TEXT NOT NULL,            -- 'movie' | 'tv'
+            tmdb_id INTEGER NOT NULL,
+            title TEXT,
+            original_title TEXT,
+            year TEXT,
+            overview TEXT,
+            poster_path TEXT,
+            backdrop_path TEXT,
+            genres TEXT,                   -- JSON array of names
+            runtime INTEGER,               -- minutes; episode runtime for tv
+            vote_average REAL,
+            status TEXT,                   -- Released | Returning Series | Ended...
+            data JSON,                     -- full TMDB payload
+            fetched_at INTEGER NOT NULL,
+            PRIMARY KEY (kind, tmdb_id)
+        );
+    `);
+
+    // What a catalogue entry resolved to -- including the entries that
+    // resolved to nothing. Recording the failures is the whole point: an
+    // unmatched title that is not written down here gets searched again on
+    // every single pass, forever.
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS tmdb_links (
+            item_id TEXT PRIMARY KEY,      -- playlist_items.id
+            kind TEXT,                     -- 'movie' | 'tv', null when unmatched
+            tmdb_id INTEGER,               -- null when unmatched
+            status TEXT NOT NULL,          -- 'matched' | 'unmatched'
+            confidence REAL,
+            matched_name TEXT NOT NULL,    -- the catalogue name this attempt used,
+                                           -- so a rename can retry immediately
+            attempts INTEGER NOT NULL DEFAULT 1,
+            last_attempt_at INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_tmdb_links_status
+            ON tmdb_links(status, last_attempt_at);
+    `);
+
     // Migration: Add source_id column if missing (for existing databases)
     try {
         db.exec(`ALTER TABLE watch_history ADD COLUMN source_id INTEGER`);

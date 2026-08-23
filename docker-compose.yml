@@ -11,3 +11,11 @@ services:
     environment:
       - NODE_ENV=production
       - PORT=3000 # Internal container port
+      # Read from a .env file next to this compose file. Without JWT_SECRET
+      # the server falls back to the placeholder in server/auth.js, which is
+      # public in the repository: set it.
+      - JWT_SECRET=${JWT_SECRET:-}
+      - JWT_EXPIRY=${JWT_EXPIRY:-365d}
+      # TMDB enrichment stays off entirely when the key is empty.
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+      - TMDB_PASS_INTERVAL_HOURS=${TMDB_PASS_INTERVAL_HOURS:-6}

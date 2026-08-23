@@ -145,6 +145,39 @@ mechanism, and the only way to invalidate an issued token is to change
 JWT_EXPIRY=30d # any value the `ms` library understands: 12h, 30d, 365d...
 ```
 
+### TMDB Metadata
+
+Xtream providers describe their series reasonably well and their movies
+barely at all -- a movie's listing carries a name, a poster, a rating and
+nothing else, not even a year. Set a TMDB key and the server fills the gaps
+in the background:
+
+```env
+TMDB_API_KEY=your_key            # a v3 key or a v4 read access token
+TMDB_PASS_INTERVAL_HOURS=6       # optional, defaults to 6
+```
+
+Leave it empty and nothing runs.
+
+A pass lists the catalogue entries that carry no metadata yet and tries to
+identify them, which covers both the titles the provider added since the
+last pass and the ones an earlier pass failed on. Nothing is ever fetched
+twice: metadata is stored per work rather than per catalogue entry, so the
+same film listed in HD, FHD and 4K costs one download, and every attempt is
+recorded -- including the failures, because an unmatched title that is not
+written down gets searched again on every pass forever. A failure is retried
+after a month, at most four times, or straight away if the provider renamed
+the entry.
+
+Matching is deliberately strict. The title has to match exactly once
+accents, case, punctuation and language and quality tags are stripped, and
+where a year is known it has to agree. Anything less is left unmatched
+rather than guessed at, since a wrong match puts the wrong synopsis on
+something with no way to correct it.
+
+`GET /api/tmdb/status` reports the progress; `POST /api/tmdb/run` (admin)
+runs a pass immediately.
+
 ### Usage
 
 1.  Go to **Settings** -> **Content Sources**.

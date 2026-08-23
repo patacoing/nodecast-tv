@@ -188,6 +188,7 @@ app.use('/api/probe', require('./routes/probe'));
 app.use('/api/subtitle', require('./routes/subtitle'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/history', require('./routes/history'));
+app.use('/api/tmdb', require('./routes/tmdb'));
 
 // Version endpoint
 app.get('/api/version', (req, res) => {
@@ -226,6 +227,20 @@ app.listen(PORT, async () => {
             await hwDetect.detect();
         } catch (err) {
             console.warn('Hardware detection failed:', err.message);
+        }
+
+        // TMDB enrichment. Starts its own timer and does nothing at all
+        // without a key, so a server with no TMDB account is unaffected.
+        try {
+            const tmdbEnricher = require('./services/tmdbEnricher');
+            tmdbEnricher.start(Number(process.env.TMDB_PASS_INTERVAL_HOURS) || 6);
+            // The catalogue has just been synced: whatever arrived today is
+            // waiting, and after the first backfill this is a few dozen
+            // entries rather than the whole library.
+            tmdbEnricher.runPass().catch(err =>
+                console.error('[TMDB] Initial pass failed:', err));
+        } catch (err) {
+            console.warn('TMDB enrichment failed to start:', err.message);
         }
     }, 5000);
 });
