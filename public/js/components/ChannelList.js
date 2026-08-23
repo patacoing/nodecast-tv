@@ -1435,17 +1435,6 @@ class ChannelList {
     }
 
     /**
-     * Show EPG info for channel
-     */
-    async showEpgInfo(channelId) {
-        const channel = this.channels.find(c => c.id === channelId);
-        if (!channel) return;
-
-        // This would show a modal with EPG info
-        console.log('Show EPG for:', channel);
-    }
-
-    /**
      * Get list of visible (non-hidden) channels in display order
      */
     getVisibleChannels() {
