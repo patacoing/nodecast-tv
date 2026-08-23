@@ -1,0 +1,23 @@
+# The Dockerfile runs `npm ci --only=production` and then `COPY . .`, so
+# anything listed here is what that copy must not undo or drag along.
+
+# Would overwrite the production install with the host's tree: dev
+# dependencies come back, and native modules such as better-sqlite3 carry
+# a binary built for the host's architecture rather than the image's.
+node_modules
+
+# Runtime state. data/ is a bind mount at run time; baking a copy of the
+# database into the image layer is both useless and a leak.
+data
+transcode-cache
+*.log
+.env
+
+# Not part of the server: the Android wrapper and its build output, the
+# test suite, and the repository history.
+android
+test
+.git
+.gitignore
+.github
+nodecast.patch
