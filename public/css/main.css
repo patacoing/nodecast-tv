@@ -5132,3 +5132,81 @@ kbd {
   opacity: 1;
   pointer-events: auto;
 }
+
+/* =====================================================
+   Television layout (.tv-mode on <html>, set by dpad.js)
+
+   Only the Android wrapper gets this; a desktop browser keeps the dense
+   interface. What is wrong on a television is not the layout so much as
+   the scale of it: the app was drawn for a screen half a metre away, and
+   is being read from three metres.
+
+   Every value is proportional and clamped rather than fixed, because the
+   CSS viewport of a TV WebView cannot be assumed. The wrapper leaves the
+   viewport at device-width, and a Fire TV Stick reports a device pixel
+   ratio of 2 on a 1080p panel, so the page most likely lays out at 960px
+   wide rather than 1920. These bounds hold up either way.
+   ===================================================== */
+
+html.tv-mode {
+  font-size: clamp(15px, 1.5vw, 21px);
+
+  --navbar-height: clamp(60px, 6.5vh, 88px);
+  --sidebar-width: clamp(300px, 32vw, 460px);
+
+  /* Televisions crop the edges of the picture. Content pushed flush
+     against the border of the screen is simply not there for the
+     viewer, so the outermost containers keep a margin of their own. */
+  --tv-overscan-x: clamp(16px, 2vw, 44px);
+  --tv-overscan-y: clamp(8px, 1.5vh, 22px);
+}
+
+/* body sets its own 14px, which would otherwise win over the root size
+   for everything that is not expressed in rem. */
+.tv-mode body {
+  font-size: 1rem;
+}
+
+.tv-mode .navbar {
+  padding-top: var(--tv-overscan-y);
+  padding-left: calc(var(--space-lg) + var(--tv-overscan-x));
+  padding-right: calc(var(--space-lg) + var(--tv-overscan-x));
+}
+
+.tv-mode .dashboard-content {
+  padding: var(--space-lg) calc(var(--space-lg) + var(--tv-overscan-x))
+    calc(var(--space-lg) + var(--tv-overscan-y));
+  max-width: none;
+}
+
+/* These two hardcode the height of a 60px navbar plus its page header.
+   Follow the variable instead, or a taller bar clips the bottom row. */
+.tv-mode .movies-grid,
+.tv-mode .series-grid {
+  height: calc(100vh - var(--navbar-height) - 60px);
+  padding-left: calc(var(--space-lg) + var(--tv-overscan-x));
+  padding-right: calc(var(--space-lg) + var(--tv-overscan-x));
+  padding-bottom: calc(var(--space-lg) + var(--tv-overscan-y));
+}
+
+/* Posters carry the text that grew, so they have to grow with it. */
+.tv-mode .movie-card,
+.tv-mode .series-card {
+  flex-basis: clamp(160px, 15vw, 230px);
+  width: clamp(160px, 15vw, 230px);
+}
+
+.tv-mode .dashboard-card {
+  flex: 0 0 clamp(170px, 17vw, 250px);
+  max-width: none;
+}
+
+.tv-mode .channel-tile {
+  flex-basis: clamp(110px, 11vw, 160px);
+}
+
+/* The ring is the only thing telling the viewer where they are, and it
+   is being read from across the room. */
+.tv-mode :focus-visible {
+  outline-width: 4px;
+}

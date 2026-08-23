@@ -24,11 +24,14 @@ const fs = require('fs');
 const path = require('path');
 const { describe, it } = require('node:test');
 const assert = require('node:assert/strict');
-const { JSDOM } = require('jsdom');
+// jsdom ignores a top-level `userAgent` option: navigator.userAgent comes
+// from the resource loader, which is the only way to fake the Android
+// wrapper's marker.
+const { JSDOM, ResourceLoader } = require('jsdom');
 
 const SRC = fs.readFileSync(path.join(__dirname, '..', 'public', 'js', 'dpad.js'), 'utf8');
 
-function build(html) {
+function build(html, opts = {}) {
     // Tests that need a specific page (page-live, page-watch) supply their own
     // .page wrapper; wrapping again would nest pages and make
     // querySelector('.page.active') return the wrong one.
@@ -36,7 +39,10 @@ function build(html) {
         ? html
         : `<div id="page-movies" class="page active">${html}</div>`;
     const dom = new JSDOM(`<body>${body}</body>`, {
-        runScripts: 'outside-only', pretendToBeVisual: true
+        runScripts: 'outside-only', pretendToBeVisual: true,
+        ...(opts.userAgent
+            ? { resources: new ResourceLoader({ userAgent: opts.userAgent }) }
+            : {})
     });
     const { window } = dom;
     global.window = window;
@@ -667,4 +673,37 @@ describe('clickable class coverage', () => {
     }
     check('down reaches the last one', id(w), `el${CLICKABLE.length - 1}`);
     check('walked through every element', reached, CLICKABLE.length);
+});
+
+// ---------------------------------------------------------------
+// Android wrapper detection. Both the television layout and the CSS
+// fullscreen workaround hang off the user agent marker, and both must
+// stay off in an ordinary browser.
+// ---------------------------------------------------------------
+const WRAPPER_UA = 'Mozilla/5.0 (Linux; Android 9; AFTKA) AppleWebKit/537.36 '
+    + '(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 NodeCastTV-Android/1';
+
+describe('android wrapper detection', () => {
+    const desktop = build('<button id="b" data-rect="0,0,40,40"></button>');
+    check('no tv layout in a plain browser',
+        desktop.document.documentElement.classList.contains('tv-mode'), false);
+    check('fullscreen stays with the native API',
+        desktop.Fullscreen.inAndroidWrapper, false);
+
+    const tv = build('<button id="b" data-rect="0,0,40,40"></button>',
+        { userAgent: WRAPPER_UA });
+    check('the wrapper gets the tv layout',
+        tv.document.documentElement.classList.contains('tv-mode'), true);
+    check('the wrapper takes over fullscreen',
+        tv.Fullscreen.inAndroidWrapper, true);
+
+    // In the wrapper, toggle() reports that it handled things itself and
+    // lays the element out in CSS rather than calling requestFullscreen.
+    const el = tv.document.getElementById('b');
+    check('toggle claims the fullscreen', tv.Fullscreen.toggle(el), true);
+    check('toggle lays it out in CSS', el.classList.contains('css-fullscreen'), true);
+    check('toggle is a toggle', tv.Fullscreen.toggle(el) && el.classList.contains('css-fullscreen'), false);
+
+    check('toggle declines outside the wrapper',
+        desktop.Fullscreen.toggle(desktop.document.getElementById('b')), false);
 });

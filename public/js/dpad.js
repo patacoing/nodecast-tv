@@ -15,6 +15,13 @@
 (function () {
     'use strict';
 
+    // The Android wrapper appends this to its user agent. Two things hang off
+    // it: the CSS fullscreen workaround at the bottom of this file, and the
+    // television layout, which is opt-in rather than global so that using the
+    // app from a desktop browser keeps its dense interface.
+    const inAndroidWrapper = / NodeCastTV-Android\//.test(navigator.userAgent);
+    if (inAndroidWrapper) document.documentElement.classList.add('tv-mode');
+
     // Clickable elements that are not natively focusable
     // Keep in sync with anything that gets a click listener but is not a
     // <button>/<a>. dpad.test.js asserts every entry here stays reachable.
@@ -480,13 +487,11 @@
     // Fullscreen inside the Android TV wrapper
     // ==========================================================
 
-    // The wrapper appends this to its user agent. Its activity already fills
-    // the screen, so the Fullscreen API buys nothing there — and going
-    // through it leaves the WebView's video surface at its previous size,
-    // which paints the picture small in the top-left corner with black bands
-    // to the right and below. Lay it out in CSS instead.
-    const inAndroidWrapper = / NodeCastTV-Android\//.test(navigator.userAgent);
-
+    // The wrapper's activity already fills the screen, so the Fullscreen API
+    // buys nothing there — and going through it leaves the WebView's video
+    // surface at its previous size, which paints the picture small in the
+    // top-left corner with black bands to the right and below. Lay it out in
+    // CSS instead.
     window.Fullscreen = {
         inAndroidWrapper,
 
