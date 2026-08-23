@@ -299,10 +299,31 @@
         return !!el && el !== document.body && el.matches?.(FOCUSABLE_SELECTOR) && isVisible(el);
     }
 
+    function activePageId() {
+        return document.querySelector('.page.active')?.id || null;
+    }
+
     /** Pages where a bare arrow press (nothing focused) drives playback. */
     function onPlayerPage() {
-        const active = document.querySelector('.page.active');
-        return active && (active.id === 'page-watch' || active.id === 'page-live');
+        const id = activePageId();
+        return id === 'page-watch' || id === 'page-live';
+    }
+
+    /**
+     * Zapping: on Live TV, with nothing selected, the vertical arrows change
+     * channel the way a set-top box does. The Fire TV remote has no channel
+     * up/down keys, so the arrows are the only natural place for it.
+     *
+     * LivePage already implements the channel change, its own setting for it
+     * and the channel banner that goes with it. All this has to do is stay
+     * out of the way, which it was not doing: the key was being swallowed
+     * here to reach the player controls, and zapping was simply dead on the
+     * remote.
+     */
+    function isZapping(dir, navigable) {
+        return !navigable
+            && (dir === 'up' || dir === 'down')
+            && activePageId() === 'page-live';
     }
 
     function activate(el) {
@@ -346,16 +367,22 @@
         const isEnter = e.key === 'Enter' || e.key === ' ';
 
         setKeyboardMode(true);
-        keepPlayerControlsAwake();
 
         const active = document.activeElement;
+        const navigable = isNavigable(active);
+
+        // Let the zap through untouched, waking nothing up: the control bar
+        // would otherwise pop over the channel banner on every press.
+        if (isZapping(dir, navigable)) return;
+
+        keepPlayerControlsAwake();
 
         // Let the control keep the key when it needs it (caret, slider value,
         // Enter to submit). Vertical arrows always navigate out.
         if (arrowBelongsToControl(active, dir)) return;
         if (isEnter && (active?.tagName === 'INPUT' || active?.tagName === 'TEXTAREA')) return;
 
-        if (!isNavigable(active)) {
+        if (!navigable) {
             // Nothing focused on a player page. Horizontal arrows stay with
             // playback — seeking and volume, the way a TV player behaves —
             // while Enter and the vertical arrows are how you reach the
@@ -363,7 +390,11 @@
             // with nothing playing, such as Live TV before a channel is
             // picked, could not be entered at all.
             if (onPlayerPage()) {
-                const wantsIn = isEnter || dir === 'up' || dir === 'down';
+                // On Live TV the vertical arrows zap, so OK is the way in.
+                // A movie or an episode has nothing to zap and keeps the
+                // arrows for reaching the controls.
+                const live = activePageId() === 'page-live';
+                const wantsIn = isEnter || (!live && (dir === 'up' || dir === 'down'));
                 if (wantsIn && (enterPlayerControls() || focusFirst())) {
                     e.preventDefault();
                     e.stopPropagation();

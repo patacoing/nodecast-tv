@@ -352,22 +352,50 @@ describe('live tv: entering with nothing selected', () => {
 
     check('nothing is selected to begin with', id(w), 'BODY');
 
-    press(w, 'ArrowDown');
-    check('down enters the interface', id(w), 'btn-play');
+    // The vertical arrows zap rather than reach for the interface. LivePage
+    // owns the channel change, so the key has to arrive there untouched:
+    // grabbing the selection here is what left zapping dead on the remote.
+    const down = press(w, 'ArrowDown');
+    check('down does not take the selection', id(w), 'BODY');
+    check('down reaches the zapping handler', down.defaultPrevented, false);
 
-    // and from there the sidebar's expand button is reachable
-    press(w, 'ArrowLeft');
-    check('left reaches the expand button', id(w), 'sidebar-expand-btn');
+    const up = press(w, 'ArrowUp');
+    check('up does not take the selection', id(w), 'BODY');
+    check('up reaches the zapping handler', up.defaultPrevented, false);
 
     // horizontal arrows with nothing selected stay with playback
-    w.document.activeElement.blur();
     const ev = press(w, 'ArrowRight');
     check('right is left to the playback shortcuts', id(w), 'BODY');
     check('right is not swallowed', ev.defaultPrevented, false);
 
-    // Enter gets in too
+    // OK is now the way in
     press(w, 'Enter');
     check('enter reaches the controls', id(w), 'btn-play');
+
+    // and from there the sidebar's expand button is reachable
+    press(w, 'ArrowLeft');
+    check('left reaches the expand button', id(w), 'sidebar-expand-btn');
+});
+
+// ---------------------------------------------------------------
+// The zapping exception is Live TV only: a movie has no next channel,
+// so the arrows there still have to reach the control bar.
+// ---------------------------------------------------------------
+describe('watch page: entering with nothing selected', () => {
+    const w = build(`
+      <div class="page active" id="page-watch">
+        <button id="watch-play-pause" data-rect="320,940,48,48"></button>
+        <button id="watch-mute" data-rect="380,940,48,48"></button>
+      </div>`);
+
+    check('nothing is selected to begin with', id(w), 'BODY');
+
+    press(w, 'ArrowDown');
+    check('down still enters the interface', id(w), 'watch-play-pause');
+
+    w.document.activeElement.blur();
+    press(w, 'ArrowUp');
+    check('up still enters the interface', id(w), 'watch-play-pause');
 });
 
 // ---------------------------------------------------------------
