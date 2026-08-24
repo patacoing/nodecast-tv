@@ -3141,9 +3141,6 @@ kbd {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
-  max-height: 34vh;
-  overflow-y: auto;
-  overscroll-behavior: contain;
   margin-top: var(--space-md);
 }
 
@@ -5109,13 +5106,55 @@ html.tv-mode {
   width: clamp(160px, 15vw, 230px);
 }
 
+/* A dashboard card is a 2:3 poster, so its width sets its height at one
+   and a half times over. Sizing it by viewport width alone made it half
+   the screen tall on a 960x540 TV layout; the height cap is what actually
+   governs it. */
 .tv-mode .dashboard-card {
-  flex: 0 0 clamp(170px, 17vw, 250px);
+  flex: 0 0 clamp(110px, 25vh, 190px);
   max-width: none;
 }
 
+.tv-mode .movie-card,
+.tv-mode .series-card {
+  flex-basis: clamp(110px, 25vh, 190px);
+  width: clamp(110px, 25vh, 190px);
+}
+
 .tv-mode .channel-tile {
-  flex-basis: clamp(110px, 11vw, 160px);
+  flex-basis: clamp(90px, 13vh, 150px);
+}
+
+/* The focus ring stands 4px out with a 2px offset, so neighbours a few
+   pixels apart end up underneath it. Rows that were laid out for a mouse
+   need real space between them on a television. */
+.tv-mode .navbar-menu,
+.tv-mode .movies-controls,
+.tv-mode .series-controls,
+.tv-mode .guide-controls,
+.tv-mode .media-actions,
+.tv-mode .horizontal-scroll {
+  gap: var(--space-md);
+}
+
+.tv-mode .nav-link,
+.tv-mode .btn {
+  padding: var(--space-sm) var(--space-lg);
+}
+
+/* The dialog is read from across the room but it also has to fit on the
+   screen: the body sets its own size rather than inheriting the enlarged
+   root, which left no room for the seasons under a synopsis. */
+.tv-mode .media-body {
+  font-size: 0.85rem;
+}
+
+.tv-mode .media-hero-title {
+  font-size: clamp(1.1rem, 2.2vw, 1.6rem);
+}
+
+.tv-mode .media-modal-box {
+  max-width: min(620px, 86vw, 70vh);
 }
 
 /* The ring is the only thing telling the viewer where they are, and it
@@ -5150,6 +5189,21 @@ html.tv-mode {
   background: rgba(0, 0, 0, 0.72);
   backdrop-filter: blur(4px);
   animation: modal-fade-in 200ms ease both;
+}
+
+/* An Android WebView composites a playing video onto a surface of its own,
+   and an ancestor that filters, clips or rounds its subtree can leave that
+   surface unpainted -- the sound and the subtitles arrive, the picture
+   never does. While a trailer is playing nothing above it does any of
+   those things. */
+.media-modal.trailer-playing {
+  backdrop-filter: none;
+}
+
+.media-modal.trailer-playing .media-modal-box,
+.media-modal.trailer-playing .media-hero {
+  overflow: visible;
+  border-radius: 0;
 }
 
 .media-modal.hidden {
@@ -5308,6 +5362,11 @@ html.tv-mode {
   line-height: 1.55;
   margin-bottom: var(--space-md);
   max-width: 70ch;
+  /* A long synopsis used to push the seasons out of the box entirely */
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .media-credits {

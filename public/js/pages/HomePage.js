@@ -19,6 +19,14 @@ class HomePage {
 
     async show() {
         this.renderLayout();
+
+        // Coming back to the dashboard lands at the top of it. #page-home is
+        // the scroller, and it keeps its position across a page switch, so
+        // returning from a film left the viewer halfway down a page that
+        // had just been rebuilt under them.
+        const page = document.getElementById('page-home');
+        if (page) page.scrollTop = 0;
+
         await this.loadDashboardData();
     }
 
