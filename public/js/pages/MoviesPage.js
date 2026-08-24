@@ -28,6 +28,15 @@ class MoviesPage {
     }
 
     init() {
+        // Details panel, shown before playback rather than starting it
+        this.detailsPanel = document.getElementById('movie-details');
+        document.getElementById('movie-back-btn')
+            ?.addEventListener('click', () => history.back());
+        document.getElementById('movie-play-btn')
+            ?.addEventListener('click', () => {
+                if (this.currentMovie) this.playMovie(this.currentMovie);
+            });
+
         // Source change handler
         this.sourceSelect?.addEventListener('change', async () => {
             await this.loadCategories();
@@ -82,6 +91,10 @@ class MoviesPage {
     }
 
     async show() {
+        // Same as the series page: coming back to Movies from the navbar
+        // lands on the grid, not on whatever film was open last time.
+        this.hideMovieDetails();
+
         // Load sources if not loaded
         if (this.sources.length === 0) {
             await this.loadSources();
@@ -351,7 +364,7 @@ class MoviesPage {
                     this.toggleWatchlist(movie, e.target.closest('.watchlist-btn'));
                     e.stopPropagation();
                 } else {
-                    this.playMovie(movie);
+                    this.showMovieDetails(movie);
                 }
             });
             fragment.appendChild(card);
@@ -371,6 +384,73 @@ class MoviesPage {
         if (end >= this.filteredMovies.length && loader) {
             loader.style.display = 'none';
         }
+    }
+
+    /**
+     * The card opens the film rather than starting it. On a remote there is
+     * no way back out of a stream that began on its own, and a movie
+     * listing carries no synopsis at all -- this is the only place the
+     * TMDB-filled description has to show.
+     */
+    async showMovieDetails(movie) {
+        this.currentMovie = movie;
+        this.container.classList.add('hidden');
+        this.detailsPanel.classList.remove('hidden');
+
+        // Its own history entry, so Back closes the film rather than the page
+        history.pushState({ page: 'movies', detail: movie.id }, '', '#movies');
+
+        const provider = {
+            title: movie.name,
+            poster: movie.stream_icon || movie.cover,
+            plot: movie.plot,
+            year: movie.year || movie.releaseDate?.substring(0, 4),
+            rating: movie.rating,
+            genres: movie.genre ? movie.genre.split(/\s*[,\/]\s*/) : null,
+            cast: movie.cast,
+            director: movie.director
+        };
+
+        // Draw what the provider gave straight away, then fill the gaps when
+        // TMDB answers: the panel must not wait on a network round trip
+        // that usually 404s.
+        this.renderMovieDetails(Metadata.merge(provider, null));
+        document.getElementById('movie-play-btn')?.focus();
+
+        const tmdb = await Metadata.fetch(movie.id);
+        // The user may have gone back, or moved on to another film already
+        if (tmdb && this.currentMovie === movie) {
+            this.renderMovieDetails(Metadata.merge(provider, tmdb));
+        }
+    }
+
+    renderMovieDetails(meta) {
+        document.getElementById('movie-poster').src = meta.poster || '/img/placeholder.png';
+        document.getElementById('movie-title').textContent = meta.title || '';
+        document.getElementById('movie-meta').textContent = Metadata.summaryLine(meta);
+        document.getElementById('movie-plot').textContent =
+            meta.plot || 'No description available.';
+
+        const credits = [];
+        if (meta.director) credits.push(`Directed by ${meta.director}`);
+        if (meta.cast) credits.push(meta.cast);
+        document.getElementById('movie-credits').textContent = credits.join(' — ');
+
+        document.getElementById('movie-source').textContent =
+            meta.enriched ? 'Description from TMDB' : '';
+    }
+
+    hideMovieDetails() {
+        this.detailsPanel?.classList.add('hidden');
+        this.container.classList.remove('hidden');
+        this.currentMovie = null;
+    }
+
+    /** Called by the Back key before it leaves the page. */
+    closeDetails() {
+        if (this.detailsPanel?.classList.contains('hidden') !== false) return false;
+        this.hideMovieDetails();
+        return true;
     }
 
     async playMovie(movie) {

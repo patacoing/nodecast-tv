@@ -52,7 +52,7 @@ class SeriesPage {
 
         // Back button
         document.querySelector('.series-back-btn')?.addEventListener('click', () => {
-            this.hideDetails();
+            history.back();
         });
 
         // Set up IntersectionObserver for lazy loading
@@ -383,6 +383,12 @@ class SeriesPage {
         }
     }
 
+    renderSeriesHeader(meta) {
+        document.getElementById('series-poster').src = meta.poster || '/img/placeholder.png';
+        document.getElementById('series-title').textContent = meta.title || '';
+        document.getElementById('series-plot').textContent = meta.plot || '';
+    }
+
     async showSeriesDetails(series) {
         this.currentSeries = series;
 
@@ -390,10 +396,27 @@ class SeriesPage {
         this.container.classList.add('hidden');
         this.detailsPanel.classList.remove('hidden');
 
-        // Set header info
-        document.getElementById('series-poster').src = series.cover || '/img/placeholder.png';
-        document.getElementById('series-title').textContent = series.name;
-        document.getElementById('series-plot').textContent = series.plot || '';
+        // Its own history entry, so Back closes the series rather than the page
+        history.pushState({ page: 'series', detail: series.id }, '', '#series');
+
+        // Set header info. Xtream describes its series fairly well, so this
+        // is almost always the provider's own text; TMDB only steps in for
+        // the occasional entry that came through bare.
+        const provider = {
+            title: series.name,
+            poster: series.cover,
+            plot: series.plot,
+            year: series.year || series.releaseDate?.substring(0, 4),
+            rating: series.rating,
+            genres: series.genre ? series.genre.split(/\s*[,\/]\s*/) : null
+        };
+        this.renderSeriesHeader(Metadata.merge(provider, null));
+
+        Metadata.fetch(series.id).then(tmdb => {
+            if (tmdb && this.currentSeries === series) {
+                this.renderSeriesHeader(Metadata.merge(provider, tmdb));
+            }
+        });
 
         // Show loading
         this.seasonsContainer.innerHTML = '<div class="loading"><div class="loading-spinner"></div></div>';
@@ -457,6 +480,13 @@ class SeriesPage {
         this.detailsPanel.classList.add('hidden');
         this.container.classList.remove('hidden');
         this.currentSeries = null;
+    }
+
+    /** Called by the Back key before it leaves the page. */
+    closeDetails() {
+        if (this.detailsPanel?.classList.contains('hidden') !== false) return false;
+        this.hideDetails();
+        return true;
     }
 
     async playEpisode(episodeEl) {

@@ -143,6 +143,14 @@ class App {
 
         // Handle browser back/forward buttons
         window.addEventListener('popstate', (e) => {
+            // A details panel is a step of its own. Without this the remote's
+            // Back key skips straight past an open film or series and leaves
+            // the page -- or leaves the app, since the wrapper falls through
+            // to finishing the activity when the WebView cannot go back.
+            if (!e.state?.detail
+                && this.pages[this.currentPage]?.closeDetails?.()) {
+                return;
+            }
             const page = e.state?.page || 'home';
             this.navigateTo(page, false); // false = don't add to history
         });

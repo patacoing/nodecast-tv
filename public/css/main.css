@@ -5210,3 +5210,133 @@ html.tv-mode {
 .tv-mode :focus-visible {
   outline-width: 4px;
 }
+
+/* =====================================================
+   Media details panel
+
+   Shown when a film is opened, before anything starts playing. On a remote
+   there is no way back out of a stream that began on its own, and a movie
+   listing carries no synopsis at all, so this is the only place a
+   description can appear.
+   ===================================================== */
+
+#page-movies {
+  position: relative;
+}
+
+.media-details {
+  position: absolute;
+  inset: 0;
+  background: var(--color-bg-primary);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: var(--space-lg);
+}
+
+.media-details.hidden {
+  display: none;
+}
+
+.media-back-btn {
+  background: var(--color-bg-tertiary);
+  border: none;
+  color: var(--color-text-primary);
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  margin-bottom: var(--space-lg);
+  font-family: inherit;
+  font-size: inherit;
+  transition: background var(--transition-fast);
+}
+
+.media-back-btn:hover {
+  background: var(--color-bg-hover);
+}
+
+.media-details-header {
+  display: flex;
+  gap: var(--space-xl);
+  align-items: flex-start;
+}
+
+.media-poster {
+  flex-shrink: 0;
+  width: clamp(180px, 18vw, 300px);
+  aspect-ratio: 2 / 3;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-bg-tertiary);
+}
+
+.media-poster img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.media-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.media-info h3 {
+  font-size: 1.75rem;
+  margin: 0 0 var(--space-sm) 0;
+}
+
+.media-meta {
+  color: var(--color-accent);
+  margin-bottom: var(--space-md);
+}
+
+.media-plot {
+  color: var(--color-text-secondary);
+  line-height: 1.6;
+  margin-bottom: var(--space-md);
+  max-width: 70ch;
+}
+
+.media-credits {
+  color: var(--color-text-muted);
+  font-size: 0.9rem;
+  margin-bottom: var(--space-lg);
+  max-width: 70ch;
+}
+
+.media-actions {
+  display: flex;
+  gap: var(--space-md);
+  flex-wrap: wrap;
+}
+
+.media-play-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: 12px 28px;
+  font-size: 1.05rem;
+}
+
+/* Whose words these are. TMDB's text should not be passed off as the
+   provider's, and it explains why some films have a synopsis and others
+   do not until a pass has run. */
+.media-source {
+  color: var(--color-text-muted);
+  font-size: 0.8rem;
+  margin-top: var(--space-lg);
+}
+
+@media (max-width: 768px) {
+  .media-details-header {
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+  }
+
+  .media-plot,
+  .media-credits {
+    text-align: left;
+  }
+}

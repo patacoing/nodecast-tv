@@ -349,6 +349,27 @@
             <p>Loading movies...</p>
           </div>
         </div>
+        <!-- Movie details, shown before playback starts -->
+        <div id="movie-details" class="media-details hidden">
+          <button class="media-back-btn" id="movie-back-btn">&larr; Back to Movies</button>
+          <div class="media-details-header">
+            <div class="media-poster"><img id="movie-poster" src="" alt=""></div>
+            <div class="media-info">
+              <h3 id="movie-title"></h3>
+              <p class="media-meta" id="movie-meta"></p>
+              <p class="media-plot" id="movie-plot"></p>
+              <p class="media-credits" id="movie-credits"></p>
+              <div class="media-actions">
+                <button class="btn btn-primary media-play-btn" id="movie-play-btn">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                    class="icon"><path d="M8 5v14l11-7z" /></svg>
+                  Play
+                </button>
+              </div>
+              <p class="media-source" id="movie-source"></p>
+            </div>
+          </div>
+        </div>
       </div>
 
       <!-- Series Page -->
@@ -1111,7 +1132,8 @@
 
   <!-- JavaScript -->
   <script src="/js/icons.js"></script>
-  <script src="/js/api.js?v=2"></script>
+  <script src="/js/api.js?v=3"></script>
+  <script src="/js/metadata.js?v=1"></script>
   <script src="/js/components/VideoPlayer.js?v=2"></script>
   <script src="/js/components/ChannelList.js?v=3"></script>
   <script src="/js/components/SourceManager.js?v=2"></script>
@@ -1119,11 +1141,11 @@
   <script src="/js/pages/HomePage.js?v=2"></script>
   <script src="/js/pages/LivePage.js?v=2"></script>
   <script src="/js/pages/Guide.js?v=2"></script>
-  <script src="/js/pages/MoviesPage.js?v=4"></script>
-  <script src="/js/pages/SeriesPage.js?v=1"></script>
+  <script src="/js/pages/MoviesPage.js?v=5"></script>
+  <script src="/js/pages/SeriesPage.js?v=2"></script>
   <script src="/js/pages/Settings.js?v=2"></script>
   <script src="/js/pages/WatchPage.js?v=1"></script>
-  <script src="/js/app.js?v=4"></script>
+  <script src="/js/app.js?v=5"></script>
   <script src="/js/dpad.js?v=6"></script>
   <script>
     // Check for SSO token in URL

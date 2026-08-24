@@ -179,6 +179,14 @@ const API = {
         getDefaults: () => API.request('GET', '/settings/defaults')
     },
 
+    // TMDB metadata. item() answers 404 for anything not enriched, which is
+    // the normal case for most of the catalogue until a pass has run.
+    tmdb: {
+        status: () => API.request('GET', '/tmdb/status'),
+        item: (itemId) => API.request('GET', `/tmdb/item/${encodeURIComponent(itemId)}`),
+        run: () => API.request('POST', '/tmdb/run')
+    },
+
     // Users (admin only)
     users: {
         getAll: () => API.request('GET', '/auth/users'),
