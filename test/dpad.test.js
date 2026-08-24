@@ -707,3 +707,39 @@ describe('android wrapper detection', () => {
     check('toggle declines outside the wrapper',
         desktop.Fullscreen.toggle(desktop.document.getElementById('b')), false);
 });
+
+// ---------------------------------------------------------------
+// A modal owns the selection while it is open. The grid behind it stays
+// laid out and focusable, so without confinement the arrows walk out of
+// the dialog onto cards nobody can see.
+// ---------------------------------------------------------------
+describe('modal confinement', () => {
+    const w = build(`
+      <div id="page-movies" class="page active">
+        <a href="#" id="nav-home" class="nav-link" data-rect="100,8,90,34"></a>
+        <div class="movie-card" id="card-behind" data-rect="40,120,200,300"></div>
+        <div class="dpad-trap" data-rect="300,200,700,500">
+          <button id="modal-close" data-rect="960,220,40,40"></button>
+          <button id="modal-play" data-rect="330,600,120,48"></button>
+        </div>
+      </div>`);
+
+    w.document.getElementById('modal-play').focus();
+
+    // Whatever is pressed, and however often, the selection has to stay on
+    // one of the modal's own controls. The card and the navbar behind it
+    // are laid out and focusable, and are exactly what used to catch it.
+    const inside = ['modal-close', 'modal-play'];
+    let escaped = null;
+    for (const key of ['ArrowUp', 'ArrowLeft', 'ArrowDown', 'ArrowRight',
+                       'ArrowLeft', 'ArrowUp', 'ArrowRight', 'ArrowDown']) {
+        press(w, key);
+        if (!inside.includes(id(w))) { escaped = key + ' -> ' + id(w); break; }
+    }
+    check('the selection never leaves the modal', escaped, null);
+
+    // and it does move between the modal's own controls
+    w.document.getElementById('modal-play').focus();
+    press(w, 'ArrowUp');
+    check('up reaches the close button', id(w), 'modal-close');
+});

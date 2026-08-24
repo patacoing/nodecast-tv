@@ -115,11 +115,14 @@
     }
 
     function candidates() {
-        // While something is fullscreen, everything else is covered but still
-        // sits in the page with perfectly valid coordinates. Without this the
-        // selection wanders out of the player onto the navbar behind it and
-        // simply appears to do nothing.
+        // Anything covering the page -- a fullscreen player, an open modal --
+        // leaves what is behind it perfectly laid out and perfectly
+        // focusable. Without confining the search the selection wanders off
+        // onto the navbar or the grid underneath, where it is invisible and
+        // appears to do nothing at all. .dpad-trap marks an overlay that
+        // owns the selection while it is open.
         const root = document.querySelector('.css-fullscreen')
+            || document.querySelector('.dpad-trap')
             || document.fullscreenElement
             || document;
         return Array.from(root.querySelectorAll(FOCUSABLE_SELECTOR)).filter(isVisible);

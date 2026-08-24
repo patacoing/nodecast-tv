@@ -3,8 +3,8 @@
  * Handles VOD movie browsing and playback
  */
 
-// How long the viewer has to stay on a film before its trailer starts.
-const TRAILER_DELAY_MS = 4000;
+// How long the viewer has to settle on a film before its trailer starts.
+const TRAILER_DELAY_MS = 5000;
 
 class MoviesPage {
     constructor(app) {
@@ -398,7 +398,12 @@ class MoviesPage {
     async showMovieDetails(movie) {
         this.currentMovie = movie;
         this.stopTrailer();
-        this.container.classList.add('hidden');
+
+        // Where to put the selection back when the dialog closes. On a
+        // remote, losing your place in a grid of thousands is worse than
+        // anything the dialog itself can offer.
+        this.returnFocusTo = document.activeElement;
+
         this.detailsPanel.classList.remove('hidden');
 
         // Its own history entry, so Back closes the film rather than the page
@@ -501,8 +506,11 @@ class MoviesPage {
     hideMovieDetails() {
         this.stopTrailer();
         this.detailsPanel?.classList.add('hidden');
-        this.container.classList.remove('hidden');
         this.currentMovie = null;
+
+        // The card is only focusable again now that the dialog is gone
+        if (this.returnFocusTo?.isConnected) this.returnFocusTo.focus();
+        this.returnFocusTo = null;
     }
 
     /** Called by the Back key before it leaves the page. */
