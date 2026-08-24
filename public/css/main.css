@@ -5252,11 +5252,15 @@ html.tv-mode {
 
 .media-modal-box {
   width: 100%;
-  /* Narrow enough to read a synopsis in one column and to stand taller
-     than it is wide, which is what makes it feel like a card rather than
-     a page. */
-  max-width: min(860px, 94vw);
-  max-height: 90vh;
+  /* Three caps, and the last one is the one that matters. The hero is
+     16:9, so its height is the box width divided by 1.78 -- meaning the
+     width silently decides how tall the whole dialog is. Capping at 74vh
+     of width keeps that band under about 42% of the screen, whatever the
+     viewport turns out to be: a TV WebView may well lay out at 960x540
+     rather than 1920x1080, where a band sized by width alone filled the
+     screen on its own. */
+  max-width: min(680px, 88vw, 74vh);
+  max-height: 88vh;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -5304,17 +5308,17 @@ html.tv-mode {
 
 .media-hero-title {
   position: absolute;
-  left: var(--space-xl);
-  right: var(--space-xl);
-  bottom: var(--space-md);
+  left: var(--space-lg);
+  right: var(--space-lg);
+  bottom: var(--space-sm);
   margin: 0;
-  font-size: clamp(1.5rem, 3.4vw, 2.4rem);
+  font-size: clamp(1.25rem, 2.6vw, 1.9rem);
   line-height: 1.15;
   text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
 }
 
 .media-body {
-  padding: var(--space-lg) var(--space-xl) var(--space-xl);
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
 }
 
 .media-modal.closing .media-modal-box {
@@ -5374,7 +5378,7 @@ html.tv-mode {
 
 .media-plot {
   color: var(--color-text-primary);
-  line-height: 1.6;
+  line-height: 1.55;
   margin-bottom: var(--space-md);
   max-width: 70ch;
 }
@@ -5424,8 +5428,8 @@ html.tv-mode {
   }
 
   .media-hero-title {
-    left: var(--space-lg);
-    right: var(--space-lg);
+    left: var(--space-md);
+    right: var(--space-md);
   }
 }
 
