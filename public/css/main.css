@@ -5236,11 +5236,18 @@ html.tv-mode {
   padding: var(--space-lg);
   background: rgba(0, 0, 0, 0.72);
   backdrop-filter: blur(4px);
-  animation: modal-in var(--transition-normal) ease both;
+  animation: modal-fade-in 200ms ease both;
 }
 
 .media-modal.hidden {
   display: none;
+}
+
+/* On the way out. The class is removed once the animation ends, so these
+   only ever apply for the length of the fade. */
+.media-modal.closing {
+  animation: modal-fade-out 180ms ease both;
+  pointer-events: none;
 }
 
 .media-modal-box {
@@ -5255,15 +5262,45 @@ html.tv-mode {
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   padding: var(--space-xl);
+  animation: modal-rise-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
-@keyframes modal-in {
+.media-modal.closing .media-modal-box {
+  animation: modal-rise-out 180ms ease both;
+}
+
+@keyframes modal-fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
 
+@keyframes modal-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* The box lifts in rather than just appearing, which reads as "this came
+   from the card you pressed" instead of "the screen changed". */
+@keyframes modal-rise-in {
+  from { opacity: 0; transform: translateY(16px) scale(0.97); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes modal-rise-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(8px) scale(0.985); }
+}
+
+/* Honour the setting, and note that MoviesPage skips waiting for an
+   animationend that will never fire when this applies. */
 @media (prefers-reduced-motion: reduce) {
-  .media-modal { animation: none; }
+
+  .media-modal,
+  .media-modal.closing,
+  .media-modal-box,
+  .media-modal.closing .media-modal-box {
+    animation: none;
+  }
 }
 
 .media-close-btn {

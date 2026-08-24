@@ -35,6 +35,15 @@ class MoviesPage {
         this.detailsPanel = document.getElementById('movie-details');
         document.getElementById('movie-back-btn')
             ?.addEventListener('click', () => history.back());
+
+        // Clicking the dimmed area around the dialog closes it, the way a
+        // dialog behaves everywhere with a mouse or a finger. The check is
+        // for the backdrop itself: a click inside the box bubbles up to
+        // here too, and closing the film because someone selected a word of
+        // the synopsis would be maddening.
+        this.detailsPanel?.addEventListener('click', (e) => {
+            if (e.target === this.detailsPanel) history.back();
+        });
         document.getElementById('movie-play-btn')
             ?.addEventListener('click', () => {
                 if (this.currentMovie) this.playMovie(this.currentMovie);
@@ -404,7 +413,8 @@ class MoviesPage {
         // anything the dialog itself can offer.
         this.returnFocusTo = document.activeElement;
 
-        this.detailsPanel.classList.remove('hidden');
+        clearTimeout(this.closeTimer);
+        this.detailsPanel.classList.remove('closing', 'hidden');
 
         // Its own history entry, so Back closes the film rather than the page
         history.pushState({ page: 'movies', detail: movie.id }, '', '#movies');
@@ -504,9 +514,41 @@ class MoviesPage {
     }
 
     hideMovieDetails() {
+        // The trailer goes at once rather than playing under the fade
         this.stopTrailer();
-        this.detailsPanel?.classList.add('hidden');
         this.currentMovie = null;
+
+        const panel = this.detailsPanel;
+        if (!panel || panel.classList.contains('hidden')) {
+            this.finishHide();
+            return;
+        }
+
+        // Let it animate out, then actually hide it. Skipped entirely when
+        // the viewer asked for less motion, in which case no animationend
+        // is coming and waiting for one would leave the dialog on screen.
+        const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+        if (reduced) {
+            this.finishHide();
+            return;
+        }
+
+        panel.classList.add('closing');
+        const done = () => {
+            clearTimeout(this.closeTimer);
+            panel.removeEventListener('animationend', done);
+            this.finishHide();
+        };
+        panel.addEventListener('animationend', done);
+        // A safety net: an animation that never starts must not strand the
+        // dialog open with the grid unreachable behind it.
+        this.closeTimer = setTimeout(done, 400);
+    }
+
+    finishHide() {
+        clearTimeout(this.closeTimer);
+        this.detailsPanel?.classList.remove('closing');
+        this.detailsPanel?.classList.add('hidden');
 
         // The card is only focusable again now that the dialog is gone
         if (this.returnFocusTo?.isConnected) this.returnFocusTo.focus();
@@ -515,7 +557,10 @@ class MoviesPage {
 
     /** Called by the Back key before it leaves the page. */
     closeDetails() {
-        if (this.detailsPanel?.classList.contains('hidden') !== false) return false;
+        const panel = this.detailsPanel;
+        if (!panel || panel.classList.contains('hidden')) return false;
+        // Already on its way out: a second Back belongs to the page behind
+        if (panel.classList.contains('closing')) return false;
         this.hideMovieDetails();
         return true;
     }
