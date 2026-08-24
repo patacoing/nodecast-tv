@@ -55,6 +55,15 @@ class SeriesPage {
             history.back();
         });
 
+        this.favBtn = document.getElementById('series-fav-btn');
+        this.wlBtn = document.getElementById('series-wl-btn');
+        this.favBtn?.addEventListener('click', () => {
+            if (this.currentSeries) this.toggleFavorite(this.currentSeries, this.favBtn);
+        });
+        this.wlBtn?.addEventListener('click', () => {
+            if (this.currentSeries) this.toggleWatchlist(this.currentSeries, this.wlBtn);
+        });
+
         this.dialog = new MediaDialog({
             root: this.detailsPanel,
             hero: document.getElementById('series-backdrop'),
@@ -404,6 +413,7 @@ class SeriesPage {
     async showSeriesDetails(series) {
         this.currentSeries = series;
         this.dialog.open(series.id);
+        this.syncToggleButtons(series);
 
         // Its own history entry, so Back closes the series rather than the page
         history.pushState({ page: 'series', detail: series.id }, '', '#series');
@@ -551,6 +561,22 @@ class SeriesPage {
         } catch (err) {
             console.error('Error playing episode:', err);
         }
+    }
+
+    /** Reflect what this series' state already is on the dialog's buttons. */
+    syncToggleButtons(series) {
+        const key = `${series.sourceId}:${series.series_id}`;
+        const set = (btn, on, icon, icons, label) => {
+            if (!btn) return;
+            btn.classList.toggle('active', on);
+            btn.title = on ? `Remove from ${label}` : `Add to ${label}`;
+            const span = btn.querySelector(icon);
+            if (span) span.innerHTML = on ? icons.on : icons.off;
+        };
+        set(this.favBtn, this.favoriteIds.has(key), '.fav-icon',
+            { on: Icons.favorite, off: Icons.favoriteOutline }, 'Favorites');
+        set(this.wlBtn, this.watchlistIds.has(key), '.wl-icon',
+            { on: Icons.watchlist, off: Icons.watchlistOutline }, 'Watchlist');
     }
 
     async toggleWatchlist(series, btn) {

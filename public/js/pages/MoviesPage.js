@@ -42,6 +42,18 @@ class MoviesPage {
         document.getElementById('movie-back-btn')
             ?.addEventListener('click', () => history.back());
 
+        // The card's own favourite and watchlist buttons are unreachable
+        // with a remote -- they sit on top of the card and the d-pad treats
+        // a card as one stop -- so the dialog carries them instead.
+        this.favBtn = document.getElementById('movie-fav-btn');
+        this.wlBtn = document.getElementById('movie-wl-btn');
+        this.favBtn?.addEventListener('click', () => {
+            if (this.currentMovie) this.toggleFavorite(this.currentMovie, this.favBtn);
+        });
+        this.wlBtn?.addEventListener('click', () => {
+            if (this.currentMovie) this.toggleWatchlist(this.currentMovie, this.wlBtn);
+        });
+
         // Clicking the dimmed area around the dialog closes it, the way a
         // dialog behaves everywhere with a mouse or a finger. The check is
         // for the backdrop itself: a click inside the box bubbles up to
@@ -413,6 +425,7 @@ class MoviesPage {
     async showMovieDetails(movie) {
         this.currentMovie = movie;
         this.dialog.open(movie.id);
+        this.syncToggleButtons(movie);
 
         // Its own history entry, so Back closes the film rather than the page
         history.pushState({ page: 'movies', detail: movie.id }, '', '#movies');
@@ -562,6 +575,22 @@ class MoviesPage {
             console.error('Error playing movie:', err);
         }
     }
+    /** Reflect what this film's state already is on the dialog's buttons. */
+    syncToggleButtons(movie) {
+        const key = `${movie.sourceId}:${movie.stream_id}`;
+        const set = (btn, on, icon, icons, label) => {
+            if (!btn) return;
+            btn.classList.toggle('active', on);
+            btn.title = on ? `Remove from ${label}` : `Add to ${label}`;
+            const span = btn.querySelector(icon);
+            if (span) span.innerHTML = on ? icons.on : icons.off;
+        };
+        set(this.favBtn, this.favoriteIds.has(key), '.fav-icon',
+            { on: Icons.favorite, off: Icons.favoriteOutline }, 'Favorites');
+        set(this.wlBtn, this.watchlistIds.has(key), '.wl-icon',
+            { on: Icons.watchlist, off: Icons.watchlistOutline }, 'Watchlist');
+    }
+
     async toggleWatchlist(movie, btn) {
         const key = `${movie.sourceId}:${movie.stream_id}`;
         const isWl = this.watchlistIds.has(key);

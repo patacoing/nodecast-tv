@@ -5137,9 +5137,46 @@ html.tv-mode {
   gap: var(--space-md);
 }
 
+/* Rather than run off the right of the screen, which is unreachable and
+   drags the whole page sideways. The grids below size themselves from what
+   is left, so a row that wraps costs nothing. */
+.tv-mode .navbar,
+.tv-mode .navbar-menu,
+.tv-mode .movies-controls,
+.tv-mode .series-controls,
+.tv-mode .guide-controls,
+.tv-mode .media-actions {
+  flex-wrap: wrap;
+}
+
+.tv-mode .navbar {
+  height: auto;
+  min-height: var(--navbar-height);
+  row-gap: var(--space-xs);
+}
+
 .tv-mode .nav-link,
 .tv-mode .btn {
   padding: var(--space-sm) var(--space-lg);
+}
+
+/* The wordmark repeats what the logo already says and, at television type
+   sizes, it was what pushed the sign-out link off the right of the bar. */
+.tv-mode .brand-text,
+.tv-mode .version-badge {
+  display: none;
+}
+
+/* A card's favourite and watchlist buttons cannot be reached with a
+   remote: they sit on top of the card, and the d-pad treats a card as a
+   single stop. They live in the dialog instead, so on a television they
+   are only clutter. */
+.tv-mode .movie-card .favorite-btn,
+.tv-mode .movie-card .watchlist-btn,
+.tv-mode .series-card .favorite-btn,
+.tv-mode .series-card .watchlist-btn,
+.tv-mode .card-action-btn {
+  display: none;
 }
 
 /* The dialog is read from across the room but it also has to fit on the
@@ -5340,6 +5377,31 @@ html.tv-mode {
   }
 }
 
+.media-toggle-btn {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  border: 1px solid var(--color-border);
+  padding: 12px 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.media-toggle-btn .icon,
+.media-toggle-btn svg {
+  width: 1.1em;
+  height: 1.1em;
+}
+
+.media-toggle-btn.active {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.media-toggle-btn:hover {
+  background: var(--color-bg-hover);
+}
+
 .media-close-btn {
   background: var(--color-bg-tertiary);
   color: var(--color-text-primary);
@@ -5459,3 +5521,29 @@ html.tv-mode {
 }
 
 
+
+/* The film and series grids computed their height from the navbar plus a
+   hard-coded 60px for the header above them. Any header that grew -- a
+   larger font, a row that wrapped -- pushed the bottom row off the screen.
+   Let the column work it out instead. */
+#page-movies.active,
+#page-series.active {
+  display: flex;
+  flex-direction: column;
+}
+
+#page-movies .movies-grid,
+#page-series .series-grid {
+  flex: 1 1 auto;
+  height: auto;
+  min-height: 0;
+}
+
+/* Nothing may drag the page sideways: what leaves the right edge cannot be
+   reached with a remote. */
+.movies-header,
+.series-header,
+.guide-header,
+.navbar {
+  max-width: 100%;
+}
