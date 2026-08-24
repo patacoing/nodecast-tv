@@ -5284,6 +5284,20 @@ html.tv-mode {
   height: 100%;
   object-fit: cover;
   display: block;
+  /* Faded in only once the file has downloaded, so the band goes from
+     empty to finished rather than showing one image and then another. */
+  opacity: 0;
+  transition: opacity var(--transition-normal) ease;
+}
+
+.media-hero-img.loaded {
+  opacity: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .media-hero-img {
+    transition: none;
+  }
 }
 
 /* A poster in a 16:9 band would be cropped to a strip of chin, so it is

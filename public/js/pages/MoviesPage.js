@@ -430,19 +430,58 @@ class MoviesPage {
             director: movie.director
         };
 
-        // Draw the listing straight away, then fill the gaps once the
-        // stored metadata comes back: the panel must not wait on a round
-        // trip, even one that only reads our own database.
+        // Text from the listing straight away: the dialog must not wait on a
+        // round trip, even one that only reads our own database. The hero
+        // deliberately stays empty until we know which image to use --
+        // showing the poster and swapping it for the backdrop a moment
+        // later reads as the dialog loading twice.
+        this.clearHero();
         this.renderMovieDetails(Metadata.forDisplay(listing, null));
         document.getElementById('movie-play-btn')?.focus();
 
         const stored = await Metadata.fetch(movie.id);
         // The user may have gone back, or moved on to another film already
-        if (stored && this.currentMovie === movie) {
-            const meta = Metadata.forDisplay(listing, stored);
-            this.renderMovieDetails(meta);
-            this.armTrailer(movie, meta.trailer);
-        }
+        if (this.currentMovie !== movie) return;
+
+        const meta = Metadata.forDisplay(listing, stored);
+        this.renderMovieDetails(meta);
+        this.showHero(movie, meta.backdrop, meta.poster);
+        this.armTrailer(movie, meta.trailer);
+    }
+
+    clearHero() {
+        const hero = document.getElementById('movie-backdrop');
+        if (!hero) return;
+        hero.classList.remove('loaded', 'is-poster');
+        hero.removeAttribute('src');
+    }
+
+    /**
+     * Put the one image up, once it has actually downloaded. Setting src
+     * directly paints it in strips as it arrives over the network, which on
+     * a television is worse than a moment of empty band.
+     */
+    showHero(movie, backdrop, poster) {
+        const hero = document.getElementById('movie-backdrop');
+        // A 2:3 poster stretched across a 16:9 band shows a strip of chin,
+        // so it is fitted rather than cropped when it has to stand in.
+        const url = backdrop || poster;
+        if (!hero || !url) return;
+
+        const probe = new Image();
+        probe.onload = () => {
+            if (this.currentMovie !== movie) return;
+            hero.classList.toggle('is-poster', !backdrop);
+            hero.src = url;
+            hero.classList.add('loaded');
+        };
+        probe.onerror = () => {
+            // The provider's image host is not always up. Fall back to the
+            // poster if that is not what already failed.
+            if (this.currentMovie !== movie || !backdrop || !poster) return;
+            this.showHero(movie, null, poster);
+        };
+        probe.src = url;
     }
 
     /**
@@ -498,12 +537,6 @@ class MoviesPage {
     }
 
     renderMovieDetails(meta) {
-        // The hero wants a 16:9 still. The poster is the wrong shape for it
-        // but beats an empty band for the films that have no backdrop.
-        const hero = document.getElementById('movie-backdrop');
-        hero.src = meta.backdrop || meta.poster || '/img/placeholder.png';
-        hero.classList.toggle('is-poster', !meta.backdrop && !!meta.poster);
-
         document.getElementById('movie-title').textContent = meta.title || '';
         document.getElementById('movie-meta').textContent = Metadata.summaryLine(meta);
         document.getElementById('movie-plot').textContent =
@@ -521,6 +554,7 @@ class MoviesPage {
     hideMovieDetails() {
         // The trailer goes at once rather than playing under the fade
         this.stopTrailer();
+        this.clearHero();
         this.currentMovie = null;
 
         const panel = this.detailsPanel;
