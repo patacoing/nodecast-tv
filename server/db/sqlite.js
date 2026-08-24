@@ -170,6 +170,7 @@ function initSchema() {
             runtime INTEGER,               -- minutes; episode runtime for tv
             vote_average REAL,
             status TEXT,                   -- Released | Returning Series | Ended...
+            trailer TEXT,                  -- YouTube video id
             data JSON,                     -- full TMDB payload
             fetched_at INTEGER NOT NULL,
             PRIMARY KEY (kind, tmdb_id)
@@ -213,9 +214,26 @@ function initSchema() {
             genres TEXT,                   -- JSON array of names
             runtime INTEGER,               -- minutes
             year TEXT,
+            trailer TEXT,                  -- YouTube video id
+            backdrop TEXT,                 -- 16:9 still, the provider's own
+            rating REAL,
             fetched_at INTEGER NOT NULL
         );
     `);
+
+    // Migration: trailers, backdrops and precise ratings arrived after the
+    // metadata tables did
+    for (const [table, column, type] of [['item_details', 'trailer', 'TEXT'],
+                                        ['tmdb_titles', 'trailer', 'TEXT'],
+                                        ['item_details', 'backdrop', 'TEXT'],
+                                        ['item_details', 'rating', 'REAL']]) {
+        try {
+            db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+            console.log(`[SQLite] Added ${column} column to ${table}`);
+        } catch (e) {
+            // Column already exists, ignore
+        }
+    }
 
     // Migration: Add source_id column if missing (for existing databases)
     try {

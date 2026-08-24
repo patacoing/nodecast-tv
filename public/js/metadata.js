@@ -17,8 +17,8 @@
 
 // Every field the details panel knows how to show. Ordered sources are
 // consulted for each one in turn, first filled value wins.
-const FIELDS = ['title', 'poster', 'plot', 'year', 'rating',
-    'runtime', 'genres', 'cast', 'director'];
+const FIELDS = ['title', 'poster', 'backdrop', 'plot', 'year', 'rating',
+    'runtime', 'genres', 'cast', 'director', 'trailer'];
 
 const Metadata = {
     /**
@@ -51,13 +51,16 @@ const Metadata = {
             title: t.title,
             poster: t.poster_path
                 ? `https://image.tmdb.org/t/p/w500${t.poster_path}` : null,
+            backdrop: t.backdrop_path
+                ? `https://image.tmdb.org/t/p/w1280${t.backdrop_path}` : null,
             plot: t.overview,
             year: t.year,
             rating: t.vote_average,
             runtime: t.runtime,
             genres: t.genres,
             cast: null,
-            director: null
+            director: null,
+            trailer: t.trailer
         };
     },
 
@@ -83,10 +86,6 @@ const Metadata = {
     forDisplay(listing, stored) {
         const tmdb = this.fromTmdb(stored?.tmdb);
         const merged = this.merge(listing, stored?.provider, tmdb);
-
-        // No provider supplies a backdrop, so it is TMDB's or nothing.
-        merged.backdrop = stored?.tmdb?.backdrop_path
-            ? `https://image.tmdb.org/t/p/w1280${stored.tmdb.backdrop_path}` : null;
 
         // Whether the synopsis on screen is TMDB's work, so the panel can
         // say so rather than passing it off as the provider's. Only the

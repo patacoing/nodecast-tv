@@ -45,7 +45,10 @@ router.get('/item/:itemId', (req, res) => {
                 director: detailRow.director,
                 genres: detailRow.genres ? JSON.parse(detailRow.genres) : [],
                 runtime: detailRow.runtime,
-                year: detailRow.year
+                year: detailRow.year,
+                trailer: detailRow.trailer,
+                backdrop: detailRow.backdrop,
+                rating: detailRow.rating
             } : null,
             tmdb: tmdbRow ? {
                 ...tmdbRow,

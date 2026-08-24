@@ -74,8 +74,19 @@ async function search(kind, title, year, language = 'fr-FR') {
     return Array.isArray(body?.results) ? body.results : [];
 }
 
+/**
+ * The full record, with its videos folded into the same call. Asking for
+ * them separately would double the number of requests for something we
+ * want every time, and include_video_language brings back the French
+ * trailer alongside the original one rather than only what matches
+ * `language`.
+ */
 async function details(kind, tmdbId, language = 'fr-FR') {
-    return request(`/${kind}/${tmdbId}`, { language });
+    return request(`/${kind}/${tmdbId}`, {
+        language,
+        append_to_response: 'videos',
+        include_video_language: 'fr,en,null'
+    });
 }
 
 module.exports = { isEnabled, search, details, request };

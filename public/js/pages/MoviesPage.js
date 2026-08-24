@@ -3,6 +3,9 @@
  * Handles VOD movie browsing and playback
  */
 
+// How long the viewer has to stay on a film before its trailer starts.
+const TRAILER_DELAY_MS = 4000;
+
 class MoviesPage {
     constructor(app) {
         this.app = app;
@@ -394,6 +397,7 @@ class MoviesPage {
      */
     async showMovieDetails(movie) {
         this.currentMovie = movie;
+        this.stopTrailer();
         this.container.classList.add('hidden');
         this.detailsPanel.classList.remove('hidden');
 
@@ -420,8 +424,62 @@ class MoviesPage {
         const stored = await Metadata.fetch(movie.id);
         // The user may have gone back, or moved on to another film already
         if (stored && this.currentMovie === movie) {
-            this.renderMovieDetails(Metadata.forDisplay(listing, stored));
+            const meta = Metadata.forDisplay(listing, stored);
+            this.renderMovieDetails(meta);
+            this.armTrailer(movie, meta.trailer);
         }
+    }
+
+    /**
+     * Start the trailer once the viewer has settled on the film rather than
+     * immediately: opening a page should not fire sound and motion at
+     * someone still walking through the grid.
+     */
+    armTrailer(movie, videoId) {
+        this.stopTrailer();
+        if (!videoId) return;
+
+        this.trailerTimer = setTimeout(() => {
+            // Still the same film, and the panel still open
+            if (this.currentMovie !== movie) return;
+            if (this.detailsPanel?.classList.contains('hidden')) return;
+            this.playTrailer(videoId);
+        }, TRAILER_DELAY_MS);
+    }
+
+    playTrailer(videoId) {
+        const host = document.getElementById('movie-trailer');
+        if (!host) return;
+
+        // Muted, because a browser refuses to autoplay anything else, and
+        // because a trailer blaring out while you browse is not wanted.
+        // tabindex=-1 keeps the d-pad out of the iframe: the selection has
+        // to stay on the Play button behind it.
+        const iframe = document.createElement('iframe');
+        iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}`
+            + '?autoplay=1&mute=1&controls=0&modestbranding=1&rel=0'
+            + '&playsinline=1&iv_load_policy=3';
+        iframe.allow = 'autoplay; encrypted-media';
+        iframe.setAttribute('tabindex', '-1');
+        iframe.setAttribute('title', 'Trailer');
+        iframe.setAttribute('frameborder', '0');
+
+        host.replaceChildren(iframe);
+        host.hidden = false;
+        this.detailsPanel?.classList.add('trailer-playing');
+    }
+
+    stopTrailer() {
+        clearTimeout(this.trailerTimer);
+        this.trailerTimer = null;
+        const host = document.getElementById('movie-trailer');
+        if (host) {
+            // Emptying the host is what stops playback: a hidden iframe
+            // keeps its audio and its network stream running.
+            host.replaceChildren();
+            host.hidden = true;
+        }
+        this.detailsPanel?.classList.remove('trailer-playing');
     }
 
     renderMovieDetails(meta) {
@@ -441,6 +499,7 @@ class MoviesPage {
     }
 
     hideMovieDetails() {
+        this.stopTrailer();
         this.detailsPanel?.classList.add('hidden');
         this.container.classList.remove('hidden');
         this.currentMovie = null;
@@ -454,6 +513,9 @@ class MoviesPage {
     }
 
     async playMovie(movie) {
+        // Whatever happens next, the trailer must not keep playing under it
+        this.stopTrailer();
+
         try {
             // Get stream URL for movie using the actual container extension from API
             // Xtream API returns container_extension (e.g., 'mp4', 'mkv', 'avi')

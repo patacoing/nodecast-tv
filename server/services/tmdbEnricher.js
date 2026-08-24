@@ -48,6 +48,51 @@ const MAX_CONSECUTIVE_ERRORS = 10;
 
 const KIND = { movie: 'movie', series: 'tv' };
 
+/**
+ * The YouTube id out of whatever a provider chose to put in the field:
+ * a bare id, a watch URL, a short link, an embed. Anything else is
+ * discarded rather than guessed at -- a wrong id plays someone else's
+ * video over the film you are looking at.
+ */
+function youtubeId(raw) {
+    const value = String(raw ?? '').trim();
+    if (!value) return null;
+    if (/^[A-Za-z0-9_-]{11}$/.test(value)) return value;
+
+    const patterns = [
+        /[?&]v=([A-Za-z0-9_-]{11})/,
+        /youtu\.be\/([A-Za-z0-9_-]{11})/,
+        /\/embed\/([A-Za-z0-9_-]{11})/,
+        /\/shorts\/([A-Za-z0-9_-]{11})/
+    ];
+    for (const re of patterns) {
+        const m = value.match(re);
+        if (m) return m[1];
+    }
+    return null;
+}
+
+/**
+ * The one video worth autoplaying behind a film's details, out of the
+ * dozen TMDB may list: a proper trailer over a teaser, in the viewer's
+ * language over any other, official over a fan upload.
+ */
+function pickTrailer(videos) {
+    const all = (videos?.results || [])
+        .filter(v => v.site === 'YouTube' && youtubeId(v.key));
+    if (!all.length) return null;
+
+    const rank = v => (
+        (v.type === 'Trailer' ? 0 : v.type === 'Teaser' ? 1 : 2) * 100
+        + (v.iso_639_1 === 'fr' ? 0 : v.iso_639_1 === 'en' ? 10 : 20)
+        + (v.official ? 0 : 5)
+    );
+    const best = all.slice().sort((a, b) => rank(a) - rank(b))[0];
+    // Anything past a teaser is a clip, a featurette or an interview, and
+    // is not what someone lingering on a film's page expects to start.
+    return rank(best) < 200 ? youtubeId(best.key) : null;
+}
+
 /** The TMDB id the provider already put in its own record, if any. */
 function declaredTmdbId(info) {
     const raw = String(info?.info?.tmdb_id ?? '').trim();
@@ -343,10 +388,24 @@ class TmdbEnricher {
         const genres = String(i.genre || '')
             .split(/\s*[,\/]\s*/).map(g => g.trim()).filter(Boolean);
 
+        // This provider answers in two shapes depending on the title, and
+        // the second one names things differently. Reading both is free and
+        // covers the fifth of the catalogue that comes back that way.
+        const plot = i.plot || i.description || null;
+        const cast = i.cast || i.actors || null;
+
+        // backdrop is a string in one shape and a list in the other
+        const backdrop = Array.isArray(i.backdrop_path)
+            ? (i.backdrop_path[0] || null)
+            : (i.backdrop || i.backdrop_path || null);
+
+        const rating = Number.parseFloat(i.rating);
+
         getDb().prepare(`
             INSERT INTO item_details (
-                item_id, plot, cast_list, director, genres, runtime, year, fetched_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                item_id, plot, cast_list, director, genres, runtime, year,
+                trailer, backdrop, rating, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(item_id) DO UPDATE SET
                 plot = excluded.plot,
                 cast_list = excluded.cast_list,
@@ -354,15 +413,21 @@ class TmdbEnricher {
                 genres = excluded.genres,
                 runtime = excluded.runtime,
                 year = excluded.year,
+                trailer = excluded.trailer,
+                backdrop = excluded.backdrop,
+                rating = excluded.rating,
                 fetched_at = excluded.fetched_at
         `).run(
             item.id,
-            i.plot || null,
-            i.cast || null,
+            plot,
+            cast,
             i.director || null,
             JSON.stringify(genres),
             runtime,
             String(i.releasedate || i.release_date || '').slice(0, 4) || null,
+            youtubeId(i.youtube_trailer),
+            backdrop,
+            Number.isFinite(rating) && rating > 0 ? rating : null,
             Date.now()
         );
     }
@@ -383,8 +448,8 @@ class TmdbEnricher {
             INSERT INTO tmdb_titles (
                 kind, tmdb_id, title, original_title, year, overview,
                 poster_path, backdrop_path, genres, runtime, vote_average,
-                status, data, fetched_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                status, trailer, data, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(kind, tmdb_id) DO UPDATE SET
                 title = excluded.title,
                 original_title = excluded.original_title,
@@ -396,6 +461,7 @@ class TmdbEnricher {
                 runtime = excluded.runtime,
                 vote_average = excluded.vote_average,
                 status = excluded.status,
+                trailer = excluded.trailer,
                 data = excluded.data,
                 fetched_at = excluded.fetched_at
         `).run(
@@ -411,6 +477,7 @@ class TmdbEnricher {
             runtime ?? null,
             full.vote_average ?? null,
             full.status || null,
+            pickTrailer(full.videos),
             JSON.stringify(full),
             Date.now()
         );
@@ -510,7 +577,8 @@ class TmdbEnricher {
 }
 
 const enricher = new TmdbEnricher();
-enricher.declaredTmdbId = declaredTmdbId;   // exposed for the tests
-
 module.exports = enricher;
+// exposed for the tests
 module.exports.declaredTmdbId = declaredTmdbId;
+module.exports.youtubeId = youtubeId;
+module.exports.pickTrailer = pickTrailer;

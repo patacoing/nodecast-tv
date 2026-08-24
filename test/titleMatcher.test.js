@@ -247,3 +247,90 @@ describe('declaredTmdbId', () => {
         assert.equal(declaredTmdbId(wrap('12abc')), null);
     });
 });
+
+// ---------------------------------------------------------------
+// Trailers. The provider fills youtube_trailer for 80% of its films,
+// so it is read first; TMDB's video list is the fallback.
+// ---------------------------------------------------------------
+const { youtubeId, pickTrailer } = require('../server/services/tmdbEnricher');
+
+describe('youtubeId', () => {
+    it('takes a bare id', () => {
+        assert.equal(youtubeId('UI57RCDMgVM'), 'UI57RCDMgVM');
+    });
+
+    it('takes a watch URL', () => {
+        assert.equal(youtubeId('https://www.youtube.com/watch?v=UI57RCDMgVM'),
+            'UI57RCDMgVM');
+    });
+
+    it('takes a watch URL with other parameters', () => {
+        assert.equal(youtubeId('https://youtube.com/watch?list=X&v=UI57RCDMgVM&t=3'),
+            'UI57RCDMgVM');
+    });
+
+    it('takes a short link, an embed and a short', () => {
+        assert.equal(youtubeId('https://youtu.be/UI57RCDMgVM'), 'UI57RCDMgVM');
+        assert.equal(youtubeId('https://www.youtube.com/embed/UI57RCDMgVM'),
+            'UI57RCDMgVM');
+        assert.equal(youtubeId('https://youtube.com/shorts/UI57RCDMgVM'),
+            'UI57RCDMgVM');
+    });
+
+    it('refuses anything it cannot read', () => {
+        // Guessing here plays a stranger's video over the film
+        assert.equal(youtubeId(''), null);
+        assert.equal(youtubeId(null), null);
+        assert.equal(youtubeId('n/a'), null);
+        assert.equal(youtubeId('https://vimeo.com/12345'), null);
+        assert.equal(youtubeId('UI57RCDMgV'), null);      // ten characters
+    });
+});
+
+describe('pickTrailer', () => {
+    const v = (key, type, lang, official = true) =>
+        ({ key, type, site: 'YouTube', iso_639_1: lang, official });
+
+    it('prefers a trailer over a teaser', () => {
+        assert.equal(pickTrailer({ results: [
+            v('aaaaaaaaaaa', 'Teaser', 'fr'), v('bbbbbbbbbbb', 'Trailer', 'fr')
+        ] }), 'bbbbbbbbbbb');
+    });
+
+    it('prefers French over English', () => {
+        assert.equal(pickTrailer({ results: [
+            v('aaaaaaaaaaa', 'Trailer', 'en'), v('bbbbbbbbbbb', 'Trailer', 'fr')
+        ] }), 'bbbbbbbbbbb');
+    });
+
+    it('prefers an official upload', () => {
+        assert.equal(pickTrailer({ results: [
+            v('aaaaaaaaaaa', 'Trailer', 'fr', false),
+            v('bbbbbbbbbbb', 'Trailer', 'fr', true)
+        ] }), 'bbbbbbbbbbb');
+    });
+
+    it('falls back to a teaser when there is no trailer', () => {
+        assert.equal(pickTrailer({ results: [v('aaaaaaaaaaa', 'Teaser', 'en')] }),
+            'aaaaaaaaaaa');
+    });
+
+    it('refuses a clip or a featurette', () => {
+        // Someone lingering on a film's page expects a trailer, not an
+        // interview with the second unit director
+        assert.equal(pickTrailer({ results: [
+            v('aaaaaaaaaaa', 'Featurette', 'fr'), v('bbbbbbbbbbb', 'Clip', 'fr')
+        ] }), null);
+    });
+
+    it('ignores anything not hosted on YouTube', () => {
+        assert.equal(pickTrailer({ results: [
+            { key: 'x', type: 'Trailer', site: 'Vimeo', iso_639_1: 'fr' }
+        ] }), null);
+    });
+
+    it('survives an empty or missing list', () => {
+        assert.equal(pickTrailer({ results: [] }), null);
+        assert.equal(pickTrailer(null), null);
+    });
+});
