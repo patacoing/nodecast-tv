@@ -5152,7 +5152,30 @@ html.tv-mode {
 
 .tv-mode .nav-link,
 .tv-mode .btn {
-  padding: var(--space-sm) var(--space-lg);
+  padding: var(--space-sm) var(--space-md);
+}
+
+/* The controls above a grid have to fit on one line. A row that wraps
+   costs fifty pixels of a 540px-tall screen and navigates badly, since
+   half of it is no longer beside the other half. The two selects show
+   "All Sources" and "All Categories" -- they do not need 200px each. */
+.tv-mode .movies-controls .source-select,
+.tv-mode .series-controls .source-select,
+.tv-mode .guide-controls .source-select {
+  min-width: 0;
+  max-width: 140px;
+}
+
+.tv-mode .movies-controls .search-wrapper,
+.tv-mode .series-controls .search-wrapper,
+.tv-mode .guide-controls .search-wrapper {
+  max-width: 170px;
+}
+
+.tv-mode .movies-controls .search-input,
+.tv-mode .series-controls .search-input,
+.tv-mode .guide-controls .search-input {
+  width: 100%;
 }
 
 /* -webkit-overflow-scrolling: touch puts a scroller on a compositing
@@ -5171,10 +5194,40 @@ html.tv-mode {
 }
 
 /* The wordmark repeats what the logo already says and, at television type
-   sizes, it was what pushed the sign-out link off the right of the bar. */
+   sizes, it was what pushed the sign-out link off the right of the bar.
+   The page headings say the same as the highlighted menu entry, and their
+   width is what forced the controls beside them onto a second line -- a
+   row that wraps navigates badly, since half of it is no longer beside
+   the other half. */
 .tv-mode .brand-text,
-.tv-mode .version-badge {
+.tv-mode .version-badge,
+.tv-mode .movies-header > h2,
+.tv-mode .series-header > h2,
+.tv-mode .guide-header > h2,
+.tv-mode .settings-container > h2 {
   display: none;
+}
+
+/* The dashboard spends its height on chrome. On a 540px-tall layout the
+   empty favourites block alone took a third of the screen for one line of
+   text, and only a section and a half was ever visible. */
+.tv-mode .dashboard-content {
+  padding-top: var(--space-md);
+}
+
+.tv-mode .dashboard-section {
+  margin-bottom: var(--space-lg);
+}
+
+.tv-mode .section-header h2,
+.tv-mode .dashboard-section h2 {
+  font-size: 1.1rem;
+  margin-bottom: var(--space-sm);
+}
+
+.tv-mode .dashboard-section .empty-state {
+  min-height: 0;
+  padding: var(--space-md);
 }
 
 /* An outline alone is not enough on a select or a search box read from

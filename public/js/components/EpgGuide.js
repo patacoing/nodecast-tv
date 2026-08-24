@@ -325,6 +325,16 @@ class EpgGuide {
             this.filteredChannels = this.allMatchedChannels.filter(m =>
                 this.favorites.has(`${m.sourceChannel.sourceId}:${m.sourceChannel.id}`)
             );
+            // Favourites is the default. There is already a fallback for
+            // having none at all, but it does not fire when the favourites
+            // exist and simply carry no programme data -- which is how the
+            // guide came to open on a blank screen. '' is the value the
+            // "All Groups" option actually uses.
+            if (this.filteredChannels.length === 0) {
+                this.filteredChannels = [...this.allMatchedChannels];
+                this.selectedGroup = '';
+                if (this.groupSelect) this.groupSelect.value = '';
+            }
             return;
         }
 

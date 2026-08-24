@@ -777,3 +777,44 @@ describe('a hidden trap confines nothing', () => {
     press(w, 'ArrowUp');
     check('an open dialog still owns the selection', id(w), 'dialog-play');
 });
+
+// ---------------------------------------------------------------
+// Leaving a row sideways must not land in the navbar. The channel
+// sidebar has nothing to its right until a channel is playing, and a
+// press of right used to fly from the middle of the list straight to
+// the top of the screen.
+// ---------------------------------------------------------------
+describe('sideways never escapes into the navbar', () => {
+    const w = build(`
+      <div id="page-live" class="page active">
+        <nav class="navbar">
+          <a href="#" id="nav-guide" class="nav-link" data-rect="600,8,90,34"></a>
+          <a href="#" id="nav-movies" class="nav-link" data-rect="700,8,90,34"></a>
+        </nav>
+        <div class="group-header" id="grp-a" data-rect="20,300,260,44"></div>
+        <div class="group-header" id="grp-b" data-rect="20,360,260,44"></div>
+        <button id="btn-play" data-rect="640,480,48,48"></button>
+      </div>`);
+
+    w.document.getElementById('grp-a').focus();
+    press(w, 'ArrowRight');
+    check('right leaves the list for the player, not the menu', id(w), 'btn-play');
+
+    // and with nothing at all to the right, it stays put
+    const w2 = build(`
+      <div id="page-live" class="page active">
+        <nav class="navbar">
+          <a href="#" id="nav-movies" class="nav-link" data-rect="700,8,90,34"></a>
+        </nav>
+        <div class="group-header" id="only" data-rect="20,300,260,44"></div>
+      </div>`);
+
+    w2.document.getElementById('only').focus();
+    const ev = press(w2, 'ArrowRight');
+    check('nothing but the navbar means no move', id(w2), 'only');
+    check('and the key is not swallowed', ev.defaultPrevented, false);
+
+    // up still reaches the navbar, which is how you are meant to get there
+    press(w2, 'ArrowUp');
+    check('up still reaches the menu', id(w2), 'nav-movies');
+});

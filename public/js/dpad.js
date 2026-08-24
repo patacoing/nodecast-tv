@@ -194,9 +194,16 @@
             // left, to the player controls pinned at the bottom right.
             const sameRow = ahead.filter(c => c.to.top < from.bottom && c.to.bottom > from.top);
 
+            // Leaving the row must not land in the navbar. It is a landmark
+            // reached by pressing up, and letting a sideways press fly into
+            // it means that from the channel list -- whose right-hand side
+            // holds nothing until a channel is playing -- right jumped
+            // straight to the top of the screen.
+            const escape = ahead.filter(c => !c.el.closest('.navbar'));
+
             let best = null;
             let bestScore = Infinity;
-            for (const c of (sameRow.length ? sameRow : ahead)) {
+            for (const c of (sameRow.length ? sameRow : escape)) {
                 // On the row, the gap alone decides. When leaving it, plain
                 // straight-line distance is the honest measure: adding the
                 // axes up instead favoured whatever sat closest to the edge
@@ -210,7 +217,7 @@
                     best = c;
                 }
             }
-            return best.el;
+            return best ? best.el : null;
         }
 
         // Vertical move: the closest element decides which row we land in,
