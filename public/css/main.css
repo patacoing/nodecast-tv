@@ -3346,11 +3346,14 @@ kbd {
 .watch-video-section {
   position: relative;
   width: 100%;
-  height: calc(100vh - var(--navbar-height));
-  /* fallback */
-  height: calc(100dvh - var(--navbar-height));
-  /* dynamic viewport for modern browsers */
-  min-height: 400px;
+  /* Fill the page, not the viewport minus a guess at the navbar. The
+     navbar is not var(--navbar-height) tall -- it has padding, and on a
+     television it can wrap -- and every pixel of the difference pushed the
+     player's own controls off the bottom of the screen. */
+  height: 100%;
+  /* A 400px floor overflows a 540px-tall television layout once the navbar
+     is taken off, and overflow here is what hides the controls. */
+  min-height: 0;
   background: #000;
 }
 
@@ -5191,6 +5194,14 @@ html.tv-mode {
    picture. Cleared as soon as the entry animation is done. */
 .media-modal-box.settled {
   animation: none;
+}
+
+/* The Now Playing pill names the film you are already watching, and at
+   television type sizes it is what pushed the navbar onto a second line:
+   146px of a 540px screen, which then pushed the player's own controls off
+   the bottom. The icon alone still says a film is playing. */
+.tv-mode .now-playing-text {
+  display: none;
 }
 
 /* The wordmark repeats what the logo already says and, at television type
