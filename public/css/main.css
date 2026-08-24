@@ -5155,11 +5155,42 @@ html.tv-mode {
   padding: var(--space-sm) var(--space-lg);
 }
 
+/* -webkit-overflow-scrolling: touch puts a scroller on a compositing
+   layer of its own, which is a known way to lose an iframe or a video
+   inside it -- the sound plays and the picture never arrives. A television
+   has no touch scrolling to accelerate, so it buys nothing here. */
+.tv-mode * {
+  -webkit-overflow-scrolling: auto;
+}
+
+/* An animation with a transform leaves the element on its own layer even
+   once it has finished, which moves the video surface out from under the
+   picture. Cleared as soon as the entry animation is done. */
+.media-modal-box.settled {
+  animation: none;
+}
+
 /* The wordmark repeats what the logo already says and, at television type
    sizes, it was what pushed the sign-out link off the right of the bar. */
 .tv-mode .brand-text,
 .tv-mode .version-badge {
   display: none;
+}
+
+/* An outline alone is not enough on a select or a search box read from
+   across a room: the control itself changes, not just its edge. */
+.tv-mode .source-select:focus-visible,
+.tv-mode .search-input:focus-visible,
+.tv-mode select:focus-visible,
+.tv-mode input:focus-visible {
+  background: var(--color-accent-dim);
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.tv-mode .source-select,
+.tv-mode .search-input {
+  padding: var(--space-sm) var(--space-md);
 }
 
 /* A card's favourite and watchlist buttons cannot be reached with a
@@ -5232,9 +5263,15 @@ html.tv-mode {
   backdrop-filter: none;
 }
 
-.media-modal.trailer-playing .media-modal-box,
+/* Never overflow:visible on the box -- it is the scroll container, and
+   removing its overflow throws the scroll position away and takes the
+   scrolling with it. Only the properties that are actually suspect go. */
+.media-modal.trailer-playing .media-modal-box {
+  border-radius: 0;
+  animation: none;
+}
+
 .media-modal.trailer-playing .media-hero {
-  overflow: visible;
   border-radius: 0;
 }
 
@@ -5262,7 +5299,6 @@ html.tv-mode {
   max-height: 88vh;
   overflow-y: auto;
   overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);

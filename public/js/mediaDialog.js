@@ -65,6 +65,21 @@ class MediaDialog {
 
         clearTimeout(this.closeTimer);
         this.root.classList.remove('closing', 'hidden');
+
+        // The entry animation carries a transform, which leaves the box on
+        // a compositing layer of its own even after it has finished -- and
+        // a video surface underneath one of those does not get painted.
+        // Drop the animation the moment it is over.
+        const box = this.root.querySelector('.media-modal-box');
+        if (box) {
+            box.classList.remove('settled');
+            box.addEventListener('animationend',
+                () => box.classList.add('settled'), { once: true });
+            // Covers reduced motion, where no animationend is coming
+            clearTimeout(this.settleTimer);
+            this.settleTimer = setTimeout(() => box.classList.add('settled'), 400);
+        }
+
         this.firstFocus?.focus();
     }
 
@@ -100,6 +115,7 @@ class MediaDialog {
 
     finish() {
         clearTimeout(this.closeTimer);
+        clearTimeout(this.settleTimer);
         this.root?.classList.remove('closing');
         this.root?.classList.add('hidden');
         if (this.returnFocusTo?.isConnected) this.returnFocusTo.focus();
