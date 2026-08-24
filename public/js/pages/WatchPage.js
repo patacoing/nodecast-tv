@@ -261,6 +261,23 @@ class WatchPage {
      * @param {Object} content - Movie or episode info
      * @param {string} streamUrl - Stream URL
      */
+    /**
+     * What the probe tells us beyond the transcode decision: the duration,
+     * so the seek bar is usable before the stream has been read, the
+     * subtitle tracks, and the quality badge.
+     */
+    applyProbeInfo(info) {
+        if (!info) return;
+        this.currentStreamInfo = info;
+        this.updateQualityBadge();
+
+        if (info.duration) {
+            this.probeDuration = info.duration;
+            if (this.durationEl) this.durationEl.textContent = this.formatTime(info.duration);
+            if (this.timeTotal) this.timeTotal.textContent = this.formatTime(info.duration);
+        }
+    }
+
     async play(content, streamUrl) {
         this.content = content;
         this.contentType = content.type;
@@ -448,24 +465,36 @@ class WatchPage {
         const isRawTs = url.includes('.ts') && !url.includes('.m3u8');
         const isDirectVideo = url.includes('.mp4') || url.includes('.mkv') || url.includes('.avi');
 
-        // Priority 0: Auto Transcode (Smart) - probe first, then decide
+        // Priority 0: Auto Transcode (Smart) - decide, then play
         if (settings.autoTranscode) {
-            console.log('[WatchPage] Auto Transcode enabled. Probing stream...');
+            const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
+            const probe = () => fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`)
+                .then(r => r.json());
+
+            // The provider states the codecs of every film it serves, and
+            // the background pass has them in the database, so the decision
+            // is already made before the viewer presses Play. Probing takes
+            // about a second of cold start to learn what we know -- ffprobe
+            // pulls megabytes of the remote stream to answer.
+            //
+            // The probe still runs, because it is also where the duration
+            // and the subtitle tracks come from; it just no longer holds up
+            // the picture. Without a stored answer it is awaited as before.
+            let info;
+            if (content.playback && !settings.upscaleEnabled) {
+                info = content.playback;
+                console.log(`[WatchPage] Auto: codecs known up front (${info.video}/${info.audio})`);
+                probe().then(full => this.applyProbeInfo(full))
+                    .catch(err => console.warn('[WatchPage] Background probe failed:', err.message));
+            } else {
+                console.log('[WatchPage] Auto Transcode enabled. Probing stream...');
+            }
+
             try {
-                const ua = settings.userAgentPreset === 'custom' ? settings.userAgentCustom : settings.userAgentPreset;
-                const probeRes = await fetch(`/api/probe?url=${encodeURIComponent(url)}&ua=${encodeURIComponent(ua || '')}`);
-                const info = await probeRes.json();
-                console.log(`[WatchPage] Probe result: video=${info.video}, audio=${info.audio}, ${info.width}x${info.height}, compatible=${info.compatible}`);
-
-                // Store early probe info for quality display
-                this.currentStreamInfo = info;
-                this.updateQualityBadge();
-
-                // Pre-fill duration from probe so the user can seek immediately
-                if (info.duration) {
-                    this.probeDuration = info.duration;
-                    if (this.durationEl) this.durationEl.textContent = this.formatTime(info.duration);
-                    if (this.timeTotal) this.timeTotal.textContent = this.formatTime(info.duration);
+                if (!info) {
+                    info = await probe();
+                    console.log(`[WatchPage] Probe result: video=${info.video}, audio=${info.audio}, ${info.width}x${info.height}, compatible=${info.compatible}`);
+                    this.applyProbeInfo(info);
                 }
 
                 if (info.needsTranscode || settings.upscaleEnabled) {

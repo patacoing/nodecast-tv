@@ -37,6 +37,7 @@ class MoviesPage {
             firstFocus: document.getElementById('movie-play-btn')
         }, () => {
             this.currentMovie = null;
+            this.currentPlayback = null;
             this.dropWarmedSession();
         });
         document.getElementById('movie-back-btn')
@@ -456,7 +457,11 @@ class MoviesPage {
         this.renderMovieDetails(meta);
         this.dialog.setHero(movie.id, meta.backdrop, meta.poster);
         this.dialog.armTrailer(movie.id, meta.trailer);
-        this.warmUpPlayback(movie, stored?.playback);
+
+        // Carried into the player so it does not have to probe the stream to
+        // learn what the provider already told us.
+        this.currentPlayback = stored?.playback || null;
+        this.warmUpPlayback(movie, this.currentPlayback);
     }
 
     /**
@@ -567,7 +572,8 @@ class MoviesPage {
                         rating: movie.rating,
                         sourceId: movie.sourceId,
                         categoryId: movie.category_id,
-                        containerExtension: container
+                        containerExtension: container,
+                        playback: this.currentPlayback
                     }, result.url);
                 }
             }
