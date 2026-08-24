@@ -30,10 +30,21 @@ const MAX_ATTEMPTS = 4;
 // long time. This is the provider's cache, not TMDB's.
 const VOD_INFO_MAX_AGE_MS = 30 * 24 * 3600 * 1000;
 
-// Work done in one pass. Enough to clear a day of new titles comfortably,
-// small enough that the first backfill is spread over several passes
-// instead of hammering both APIs in one go.
+// Rows pulled from the database at a time. Not the work done in one pass:
+// a pass keeps taking batches until the catalogue is clear or it runs out
+// of time, because at a fixed 200 entries every six hours the first
+// backfill of a 8500-title library would take a week and a half.
 const DEFAULT_BATCH = 200;
+
+// How long a pass may spend. Bounds what the enrichment can cost while
+// still letting the initial backfill finish in a handful of passes; a day
+// of new titles is done in a fraction of it.
+const PASS_BUDGET_MS = 15 * 60 * 1000;
+
+// Consecutive errors that mean the problem is not the titles. TMDB being
+// down or the key being rejected should stop the pass, not burn the budget
+// failing 8500 times.
+const MAX_CONSECUTIVE_ERRORS = 10;
 
 const KIND = { movie: 'movie', series: 'tv' };
 
@@ -88,14 +99,21 @@ class TmdbEnricher {
      * success long enough ago to be worth retrying -- or renamed since,
      * which can fix a match on its own and so skips the waiting period.
      */
-    candidates(limit = DEFAULT_BATCH) {
+    /**
+     * `afterId` walks the catalogue forward. Paging by offset would not do:
+     * an entry that throws is deliberately left unwritten so the next pass
+     * retries it, which keeps it in the result set and, sitting at the head
+     * of the ordering, it would crowd out the entries behind it.
+     */
+    candidates(limit = DEFAULT_BATCH, afterId = '') {
         const retryBefore = Date.now() - RETRY_AFTER_DAYS * 24 * 3600 * 1000;
         return getDb().prepare(`
             SELECT p.id, p.source_id, p.item_id, p.type, p.name, p.year
             ${CANDIDATE_FROM}
-            ORDER BY p.type, p.id
+              AND p.id > ?
+            ORDER BY p.id
             LIMIT ?
-        `).all(MAX_ATTEMPTS, retryBefore, limit);
+        `).all(MAX_ATTEMPTS, retryBefore, afterId, limit);
     }
 
     countPending() {
@@ -108,40 +126,62 @@ class TmdbEnricher {
      * One pass. Returns what it did, which is also what the status endpoint
      * reports back to the settings page.
      */
-    async runPass({ limit = DEFAULT_BATCH } = {}) {
+    async runPass({ limit = DEFAULT_BATCH, budgetMs = PASS_BUDGET_MS } = {}) {
         if (!this.isEnabled()) return { skipped: 'disabled' };
         if (this._running) return { skipped: 'already running' };
 
         this._running = true;
         const started = Date.now();
-        let matched = 0, unmatched = 0, failed = 0;
+        const deadline = started + budgetMs;
+        let matched = 0, unmatched = 0, failed = 0, examined = 0;
+        let consecutiveErrors = 0;
+        let stopped = null;
+
+        let cursor = '';
 
         try {
             this.purgeOrphanLinks();
 
-            const items = this.candidates(limit);
-            if (items.length === 0) {
-                console.log('[TMDB] Nothing left to enrich');
-                return { matched: 0, unmatched: 0, failed: 0, examined: 0 };
-            }
-            console.log(`[TMDB] Enriching ${items.length} entries`);
+            while (Date.now() < deadline) {
+                const items = this.candidates(limit, cursor);
+                if (items.length === 0) { stopped = stopped || 'complete'; break; }
 
-            for (const item of items) {
-                try {
-                    const hit = await this.enrichOne(item);
-                    if (hit) matched++; else unmatched++;
-                } catch (err) {
-                    // A single bad entry, or TMDB having a moment, must not
-                    // end the pass or -- worse -- be written down as a
-                    // definitive "not found".
-                    failed++;
-                    console.warn(`[TMDB] ${item.name}: ${err.message}`);
+                for (const item of items) {
+                    if (Date.now() >= deadline) { stopped = 'budget'; break; }
+                    cursor = item.id;
+                    examined++;
+                    try {
+                        const hit = await this.enrichOne(item);
+                        if (hit) matched++; else unmatched++;
+                        consecutiveErrors = 0;
+                    } catch (err) {
+                        // A single bad entry must not end the pass or --
+                        // worse -- be written down as a definitive "not
+                        // found". A run of them means something upstream is
+                        // broken and there is no point continuing.
+                        failed++;
+                        console.warn(`[TMDB] ${item.name}: ${err.message}`);
+                        if (++consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                            stopped = 'errors';
+                            break;
+                        }
+                    }
                 }
+                if (stopped) break;
             }
 
-            const result = { matched, unmatched, failed, examined: items.length };
+            if (examined === 0) {
+                console.log('[TMDB] Nothing left to enrich');
+            } else {
+                console.log(`[TMDB] Pass ${stopped || 'budget'}: ${matched} matched, `
+                    + `${unmatched} unmatched, ${failed} errors, ${this.countPending()} left`);
+            }
+
+            const result = {
+                matched, unmatched, failed, examined,
+                stopped: stopped || 'budget', remaining: this.countPending()
+            };
             this._lastPass = { ...result, at: Date.now(), tookMs: Date.now() - started };
-            console.log(`[TMDB] Pass done: ${matched} matched, ${unmatched} unmatched, ${failed} errors`);
             return result;
         } finally {
             this._running = false;
