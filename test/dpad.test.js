@@ -818,3 +818,24 @@ describe('sideways never escapes into the navbar', () => {
     press(w2, 'ArrowUp');
     check('up still reaches the menu', id(w2), 'nav-movies');
 });
+
+// ---------------------------------------------------------------
+// The cross inside a search box is a mouse affordance. With a remote you
+// select the field and delete, and an 18x26 button sitting between the
+// field and everything else only catches the selection on the way past.
+// ---------------------------------------------------------------
+describe('the search box clear button is not a stop', () => {
+    const w = build(`
+      <div id="page-movies" class="page active">
+        <input type="text" id="search" class="search-input" data-rect="100,20,220,34">
+        <button class="search-clear" data-rect="300,24,18,26">&times;</button>
+        <button id="favorites" data-rect="360,20,120,34"></button>
+      </div>`);
+
+    w.document.getElementById('search').focus();
+    press(w, 'ArrowRight');
+    check('right steps over the cross', id(w), 'favorites');
+
+    press(w, 'ArrowLeft');
+    check('and back again', id(w), 'search');
+});

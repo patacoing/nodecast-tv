@@ -189,6 +189,7 @@ app.use('/api/subtitle', require('./routes/subtitle'));
 app.use('/api/settings', require('./routes/settings'));
 app.use('/api/history', require('./routes/history'));
 app.use('/api/tmdb', require('./routes/tmdb'));
+app.use('/api/search', require('./routes/search'));
 
 // Version endpoint
 app.get('/api/version', (req, res) => {

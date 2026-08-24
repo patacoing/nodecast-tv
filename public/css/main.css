@@ -5675,3 +5675,38 @@ html.tv-mode {
 .navbar {
   max-width: 100%;
 }
+
+/* =====================================================
+   Category rows: the catalogue browsed as rows rather than a flat grid
+   behind a dropdown of thirty-four entries.
+   ===================================================== */
+
+.cat-row {
+  margin-bottom: var(--space-lg);
+}
+
+/* The container already carries the page padding, overscan included; the
+   heading only has to line up with the cards, which the row pulls 16px
+   left to make room for their focus ring. */
+.cat-row-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin: 0 0 var(--space-sm);
+}
+
+.tv-mode .cat-row {
+  margin-bottom: var(--space-md);
+}
+
+.cat-rows-sentinel {
+  height: 1px;
+}
+
+/* The grid container is a centred flex wrap, which turns each row section
+   into a centred flex item -- headings floating in the middle of the
+   screen and rows that do not start at the left edge. Rows need it to be
+   an ordinary block. */
+.movies-grid.showing-rows,
+.series-grid.showing-rows {
+  display: block;
+}

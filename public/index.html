@@ -323,9 +323,6 @@
             <select id="movies-source-select" class="source-select">
               <option value="">All Sources</option>
             </select>
-            <select id="movies-category-select" class="source-select">
-              <option value="">All Categories</option>
-            </select>
             <div class="search-wrapper">
               <input type="text" id="movies-search" placeholder="Search movies..." class="search-input">
               <button type="button" class="search-clear" title="Clear search">&times;</button>
@@ -393,9 +390,6 @@
           <div class="series-controls">
             <select id="series-source-select" class="source-select">
               <option value="">All Sources</option>
-            </select>
-            <select id="series-category-select" class="source-select">
-              <option value="">All Categories</option>
             </select>
             <div class="search-wrapper">
               <input type="text" id="series-search" placeholder="Search series..." class="search-input">
@@ -1160,9 +1154,10 @@
 
   <!-- JavaScript -->
   <script src="/js/icons.js"></script>
-  <script src="/js/api.js?v=4"></script>
+  <script src="/js/api.js?v=5"></script>
   <script src="/js/metadata.js?v=4"></script>
   <script src="/js/channelMatcher.js?v=2"></script>
+  <script src="/js/categoryRows.js?v=2"></script>
   <script src="/js/mediaDialog.js?v=5"></script>
   <script src="/js/components/VideoPlayer.js?v=2"></script>
   <script src="/js/components/ChannelList.js?v=3"></script>
@@ -1171,12 +1166,12 @@
   <script src="/js/pages/HomePage.js?v=3"></script>
   <script src="/js/pages/LivePage.js?v=2"></script>
   <script src="/js/pages/Guide.js?v=2"></script>
-  <script src="/js/pages/MoviesPage.js?v=16"></script>
-  <script src="/js/pages/SeriesPage.js?v=5"></script>
+  <script src="/js/pages/MoviesPage.js?v=19"></script>
+  <script src="/js/pages/SeriesPage.js?v=7"></script>
   <script src="/js/pages/Settings.js?v=2"></script>
   <script src="/js/pages/WatchPage.js?v=2"></script>
   <script src="/js/app.js?v=5"></script>
-  <script src="/js/dpad.js?v=9"></script>
+  <script src="/js/dpad.js?v=10"></script>
   <script>
     // Check for SSO token in URL
     (function () {

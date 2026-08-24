@@ -186,7 +186,9 @@ class MoviesPage {
         try {
             this.categories = [];
             this.hiddenCategoryIds = new Set(); // Track hidden categories
-            this.categorySelect.innerHTML = '<option value="">All Categories</option>';
+            if (this.categorySelect) {
+                this.categorySelect.innerHTML = '<option value="">All Categories</option>';
+            }
 
             const sourceId = this.sourceSelect.value;
             const sourcesToLoad = sourceId
@@ -223,8 +225,11 @@ class MoviesPage {
                 }
             }
 
-            // Populate dropdown
+            // The dropdown is gone from the television layout -- the
+            // catalogue is browsed as rows now -- but it is still filled in
+            // wherever the markup keeps it.
             this.categories.forEach(c => {
+                if (!this.categorySelect) return;
                 const option = document.createElement('option');
                 option.value = `${c.sourceId}:${c.category_id}`;
                 option.textContent = c.category_name;
@@ -243,7 +248,7 @@ class MoviesPage {
             this.movies = [];
 
             const sourceId = this.sourceSelect.value;
-            const categoryValue = this.categorySelect.value;
+            const categoryValue = this.categorySelect?.value || '';
 
             const sourcesToLoad = sourceId
                 ? this.sources.filter(s => s.id === parseInt(sourceId))
@@ -314,6 +319,24 @@ class MoviesPage {
 
         this.currentBatch = 0;
         this.container.innerHTML = '';
+        this.container.classList.remove('showing-rows');
+
+        // Typing searches the whole catalogue, not just this page. Four
+        // separate search boxes is three too many with a remote in hand,
+        // and a film is as likely to be a series as anything else.
+        if (searchTerm) {
+            this.renderGlobalSearch(searchTerm);
+            return;
+        }
+
+        // Otherwise the catalogue is shown as one row per category rather
+        // than a flat grid behind a dropdown. Thirty-four categories in a
+        // select is no way to browse anything, and a hopeless one with a
+        // remote.
+        if (!this.showFavoritesOnly && !this.sortMode) {
+            this.renderCategoryRows();
+            return;
+        }
 
         if (this.filteredMovies.length === 0) {
             this.container.innerHTML = '<div class="empty-state"><p>No movies found</p></div>';
@@ -351,6 +374,104 @@ class MoviesPage {
         const fragment = document.createDocumentFragment();
 
         batch.forEach(movie => {
+            fragment.appendChild(this.makeCard(movie));
+        });
+        this.finishBatch(fragment, end);
+    }
+
+    /**
+     * Results from across the catalogue, laid out in the same rows: films,
+     * series, channels. Answered from the database -- the enrichment that
+     * filled it is a background job -- so it costs one local query.
+     */
+    async renderGlobalSearch(term) {
+        // Not ++this.searchToken: undefined increments to NaN, and NaN never
+        // equals itself, so the guard below would reject every answer.
+        const token = this.searchToken = (this.searchToken || 0) + 1;
+        let res;
+        try {
+            res = await API.search(term);
+        } catch (err) {
+            console.warn('[Movies] Search failed:', err.message);
+            this.container.innerHTML =
+                '<div class="empty-state"><p>Search unavailable</p></div>';
+            return;
+        }
+        // Typed on, or left the page, while the answer was coming back
+        if (token !== this.searchToken) return;
+
+        this.rows = this.rows || new CategoryRows(this.container, m => this.makeCard(m));
+        this.rows.render([
+            { title: `Movies (${res.movies.length})`, items: res.movies.map(r => this.fromSearch(r)) },
+            { title: `Series (${res.series.length})`, items: res.series.map(r => this.fromSearch(r)) },
+            { title: `Channels (${res.channels.length})`, items: res.channels.map(r => this.fromSearch(r)) }
+        ]);
+    }
+
+    /**
+     * A card can now hold a series or a channel, because the search returns
+     * all three. Each opens where it belongs rather than in a film's
+     * dialog.
+     */
+    async openResult(item) {
+        if (item.type === 'series') {
+            await this.app.navigateTo('series');
+            const sp = this.app.pages.series;
+            const match = sp.seriesList.find(x => x.id === item.id)
+                || { ...item, series_id: item.item_id, cover: item.stream_icon };
+            return sp.showSeriesDetails(match);
+        }
+        if (item.type === 'live') {
+            await this.app.navigateTo('live');
+            return this.app.channelList.selectChannel({
+                channelId: item.id, sourceId: item.source_id
+            });
+        }
+        return this.showMovieDetails(item);
+    }
+
+    /**
+     * A search row speaks the database's language; the card and everything
+     * downstream speak the provider's.
+     */
+    fromSearch(row) {
+        return {
+            ...row,
+            sourceId: row.source_id,
+            stream_id: row.item_id,
+            series_id: row.item_id,
+            id: row.id,
+            container_extension: row.container_extension,
+            category_id: row.category_id
+        };
+    }
+
+    /** The catalogue as one horizontal row per category. */
+    renderCategoryRows() {
+        this.rows = this.rows || new CategoryRows(this.container, m => this.makeCard(m));
+
+        const byCategory = new Map();
+        for (const movie of this.filteredMovies) {
+            const key = `${movie.sourceId}:${movie.category_id}`;
+            if (!byCategory.has(key)) byCategory.set(key, []);
+            byCategory.get(key).push(movie);
+        }
+
+        // Category order as the provider gave it, which is how the numbered
+        // and themed groups it builds are meant to read.
+        const groups = this.categories
+            .map(c => ({
+                title: CategoryRows.cleanTitle(c.category_name),
+                items: byCategory.get(`${c.sourceId}:${c.category_id}`) || []
+            }))
+            .filter(g => g.items.length);
+
+        this.rows.render(groups);
+    }
+
+    /** One film's card, used by the grid and by the category rows alike. */
+    makeCard(movie) {
+        {
             const card = document.createElement('div');
             card.className = 'movie-card';
             card.dataset.movieId = movie.stream_id;
@@ -395,11 +516,14 @@ class MoviesPage {
                     this.toggleWatchlist(movie, e.target.closest('.watchlist-btn'));
                     e.stopPropagation();
                 } else {
-                    this.showMovieDetails(movie);
+                    this.openResult(movie);
                 }
             });
-            fragment.appendChild(card);
-        });
+            return card;
+        }
+    }
+
+    finishBatch(fragment, end) {
 
         // Insert before loader
         const loader = this.container.querySelector('.movies-loader');

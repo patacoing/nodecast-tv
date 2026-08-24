@@ -58,6 +58,11 @@
         '.card-wl-btn',
         '.card-delete-btn',
         '.wl-remove-btn',
+        // The little cross inside a search box. It is a mouse affordance --
+        // with a remote you select the field and delete -- and being an
+        // 18x26 button between the field and everything else, it caught the
+        // selection on the way past.
+        '.search-clear',
         // Sliders sit in the middle of the player control bar and would trap
         // the selection, since their arrows adjust the value instead of
         // moving on — everything past the volume slider (captions, PiP,

@@ -179,6 +179,10 @@ const API = {
         getDefaults: () => API.request('GET', '/settings/defaults')
     },
 
+    // One search across films, series and channels at once
+    search: (q, limit) => API.request('GET',
+        `/search?q=${encodeURIComponent(q)}${limit ? `&limit=${limit}` : ''}`),
+
     // Transcoding sessions
     transcode: {
         createSession: (body) => API.request('POST', '/transcode/session', body),

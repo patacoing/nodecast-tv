@@ -170,7 +170,9 @@ class SeriesPage {
         try {
             this.categories = [];
             this.hiddenCategoryIds = new Set();
-            this.categorySelect.innerHTML = '<option value="">All Categories</option>';
+            if (this.categorySelect) {
+                this.categorySelect.innerHTML = '<option value="">All Categories</option>';
+            }
 
             const sourceId = this.sourceSelect.value;
             const sourcesToLoad = sourceId
@@ -212,7 +214,7 @@ class SeriesPage {
                 const option = document.createElement('option');
                 option.value = `${c.sourceId}:${c.category_id}`;
                 option.textContent = c.category_name;
-                this.categorySelect.appendChild(option);
+                if (this.categorySelect) this.categorySelect.appendChild(option);
             });
         } catch (err) {
             console.error('Error loading categories:', err);
@@ -227,7 +229,7 @@ class SeriesPage {
             this.seriesList = [];
 
             const sourceId = this.sourceSelect.value;
-            const categoryValue = this.categorySelect.value;
+            const categoryValue = this.categorySelect?.value || '';
 
             const sourcesToLoad = sourceId
                 ? this.sources.filter(s => s.id === parseInt(sourceId))
@@ -298,6 +300,20 @@ class SeriesPage {
 
         this.currentBatch = 0;
         this.container.innerHTML = '';
+        this.container.classList.remove('showing-rows');
+
+        // Typing searches the whole catalogue, not just this page
+        if (searchTerm) {
+            this.renderGlobalSearch(searchTerm);
+            return;
+        }
+
+        // Otherwise: one row per category rather than a flat grid behind a
+        // dropdown nobody can browse with a remote.
+        if (!this.showFavoritesOnly && !this.sortMode && this.filteredSeries.length) {
+            this.renderCategoryRows();
+            return;
+        }
 
         if (this.filteredSeries.length === 0) {
             this.container.innerHTML = '<div class="empty-state"><p>No series found</p></div>';
@@ -333,6 +349,73 @@ class SeriesPage {
         const fragment = document.createDocumentFragment();
 
         batch.forEach(series => {
+            fragment.appendChild(this.makeCard(series));
+        });
+        this.finishBatch(fragment, end);
+    }
+
+    /** The catalogue as one horizontal row per category. */
+    renderCategoryRows() {
+        this.rows = this.rows || new CategoryRows(this.container, x => this.makeCard(x));
+        // Reset it: a search leaves its own card factory behind
+        this.rows.makeCard = x => this.makeCard(x);
+
+        const byCategory = new Map();
+        for (const series of this.filteredSeries) {
+            const key = `${series.sourceId}:${series.category_id}`;
+            if (!byCategory.has(key)) byCategory.set(key, []);
+            byCategory.get(key).push(series);
+        }
+
+        this.rows.render(this.categories
+            .map(c => ({
+                title: CategoryRows.cleanTitle(c.category_name),
+                items: byCategory.get(`${c.sourceId}:${c.category_id}`) || []
+            }))
+            .filter(g => g.items.length));
+    }
+
+    /** The same search as everywhere else: films, series and channels. */
+    async renderGlobalSearch(term) {
+        // Not ++this.searchToken: undefined increments to NaN, and NaN never
+        // equals itself, so the guard below would reject every answer.
+        const token = this.searchToken = (this.searchToken || 0) + 1;
+        let res;
+        try {
+            res = await API.search(term);
+        } catch (err) {
+            console.warn('[Series] Search failed:', err.message);
+            this.container.innerHTML =
+                '<div class="empty-state"><p>Search unavailable</p></div>';
+            return;
+        }
+        if (token !== this.searchToken) return;
+
+        // The film page owns the cards for films and channels; borrowing
+        // them keeps one search looking the same wherever it is typed.
+        const movies = this.app.pages.movies;
+        this.rows = this.rows || new CategoryRows(this.container, x => this.makeCard(x));
+        // Search results hold all three kinds, so the factory changes for
+        // the duration of the results and is put back by the rows above.
+        this.rows.makeCard = item => item.type === 'series'
+            ? this.makeCard(this.fromSearch(item))
+            : movies.makeCard(movies.fromSearch(item));
+
+        this.rows.render([
+            { title: `Series (${res.series.length})`, items: res.series },
+            { title: `Movies (${res.movies.length})`, items: res.movies },
+            { title: `Channels (${res.channels.length})`, items: res.channels }
+        ]);
+    }
+
+    /** A search row speaks the database's language; the card the provider's. */
+    fromSearch(row) {
+        return { ...row, sourceId: row.source_id, series_id: row.item_id, cover: row.stream_icon };
+    }
+
+    /** One series' card, used by the grid and by the category rows alike. */
+    makeCard(series) {
+        {
             const card = document.createElement('div');
             card.className = 'series-card';
             card.dataset.seriesId = series.series_id;
@@ -380,8 +463,11 @@ class SeriesPage {
                     this.showSeriesDetails(series);
                 }
             });
-            fragment.appendChild(card);
-        });
+            return card;
+        }
+    }
+
+    finishBatch(fragment, end) {
 
         // Insert before loader
         const loader = this.container.querySelector('.series-loader');
