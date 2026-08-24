@@ -354,24 +354,27 @@
              is open, or the arrows walk onto the grid still visible behind. -->
         <div id="movie-details" class="media-modal hidden">
           <div class="media-modal-box dpad-trap">
-            <div class="media-details-header">
-              <div class="media-poster"><img id="movie-poster" src="" alt=""></div>
+            <!-- Hero: the backdrop, replaced by the trailer once it starts.
+                 The title sits on it, over a gradient into the body. -->
+            <div class="media-hero">
+              <img id="movie-backdrop" class="media-hero-img" src="" alt="">
               <div class="media-trailer" id="movie-trailer" hidden></div>
-              <div class="media-info">
-                <h3 id="movie-title"></h3>
-                <p class="media-meta" id="movie-meta"></p>
-                <p class="media-plot" id="movie-plot"></p>
-                <p class="media-credits" id="movie-credits"></p>
-                <div class="media-actions">
-                  <button class="btn btn-primary media-play-btn" id="movie-play-btn">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
-                      class="icon"><path d="M8 5v14l11-7z" /></svg>
-                    Play
-                  </button>
-                  <button class="btn media-close-btn" id="movie-back-btn">Close</button>
-                </div>
-                <p class="media-source" id="movie-source"></p>
+              <div class="media-hero-fade"></div>
+              <h3 id="movie-title" class="media-hero-title"></h3>
+            </div>
+            <div class="media-body">
+              <div class="media-actions">
+                <button class="btn btn-primary media-play-btn" id="movie-play-btn">
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+                    class="icon"><path d="M8 5v14l11-7z" /></svg>
+                  Play
+                </button>
+                <button class="btn media-close-btn" id="movie-back-btn">Close</button>
               </div>
+              <p class="media-meta" id="movie-meta"></p>
+              <p class="media-plot" id="movie-plot"></p>
+              <p class="media-credits" id="movie-credits"></p>
+              <p class="media-source" id="movie-source"></p>
             </div>
           </div>
         </div>
@@ -1146,7 +1149,7 @@
   <script src="/js/pages/HomePage.js?v=2"></script>
   <script src="/js/pages/LivePage.js?v=2"></script>
   <script src="/js/pages/Guide.js?v=2"></script>
-  <script src="/js/pages/MoviesPage.js?v=9"></script>
+  <script src="/js/pages/MoviesPage.js?v=10"></script>
   <script src="/js/pages/SeriesPage.js?v=3"></script>
   <script src="/js/pages/Settings.js?v=2"></script>
   <script src="/js/pages/WatchPage.js?v=1"></script>

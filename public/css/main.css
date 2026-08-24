@@ -5252,8 +5252,11 @@ html.tv-mode {
 
 .media-modal-box {
   width: 100%;
-  max-width: min(1100px, 92vw);
-  max-height: 88vh;
+  /* Narrow enough to read a synopsis in one column and to stand taller
+     than it is wide, which is what makes it feel like a card rather than
+     a page. */
+  max-width: min(860px, 94vw);
+  max-height: 90vh;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
@@ -5261,8 +5264,57 @@ html.tv-mode {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
-  padding: var(--space-xl);
   animation: modal-rise-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Hero band: the backdrop, or the trailer once it starts. */
+.media-hero {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  background: var(--color-bg-tertiary);
+  overflow: hidden;
+}
+
+.media-hero-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* A poster in a 16:9 band would be cropped to a strip of chin, so it is
+   fitted and blurred out to the sides instead. */
+.media-hero-img.is-poster {
+  object-fit: contain;
+  background: var(--color-bg-tertiary);
+}
+
+/* Reads the title against any still, and joins the band to the body. */
+.media-hero-fade {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(to top,
+      var(--color-bg-secondary) 0%,
+      rgba(18, 18, 26, 0.75) 22%,
+      rgba(18, 18, 26, 0.1) 48%,
+      rgba(18, 18, 26, 0.35) 100%);
+}
+
+.media-hero-title {
+  position: absolute;
+  left: var(--space-xl);
+  right: var(--space-xl);
+  bottom: var(--space-md);
+  margin: 0;
+  font-size: clamp(1.5rem, 3.4vw, 2.4rem);
+  line-height: 1.15;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.6);
+}
+
+.media-body {
+  padding: var(--space-lg) var(--space-xl) var(--space-xl);
 }
 
 .media-modal.closing .media-modal-box {
@@ -5315,44 +5367,13 @@ html.tv-mode {
   background: var(--color-bg-hover);
 }
 
-.media-details-header {
-  display: flex;
-  gap: var(--space-xl);
-  align-items: flex-start;
-}
-
-.media-poster {
-  flex-shrink: 0;
-  width: clamp(180px, 18vw, 300px);
-  aspect-ratio: 2 / 3;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: var(--color-bg-tertiary);
-}
-
-.media-poster img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.media-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.media-info h3 {
-  font-size: 1.75rem;
-  margin: 0 0 var(--space-sm) 0;
-}
-
 .media-meta {
   color: var(--color-accent);
   margin-bottom: var(--space-md);
 }
 
 .media-plot {
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   line-height: 1.6;
   margin-bottom: var(--space-md);
   max-width: 70ch;
@@ -5369,6 +5390,7 @@ html.tv-mode {
   display: flex;
   gap: var(--space-md);
   flex-wrap: wrap;
+  margin-bottom: var(--space-lg);
 }
 
 .media-play-btn {
@@ -5395,30 +5417,24 @@ html.tv-mode {
 
   .media-modal-box {
     max-height: 94vh;
-    padding: var(--space-lg);
   }
 
-  .media-details-header {
-    flex-direction: column;
-    align-items: center;
-    text-align: center;
+  .media-body {
+    padding: var(--space-md) var(--space-lg) var(--space-lg);
   }
 
-  .media-plot,
-  .media-credits {
-    text-align: left;
+  .media-hero-title {
+    left: var(--space-lg);
+    right: var(--space-lg);
   }
 }
 
-/* Trailer on the details panel. It takes the poster's place rather than
-   sitting behind the text: a 16:9 video under a synopsis is unreadable on
-   a television, and swapping keeps the Play button exactly where the
-   selection left it. */
+/* The trailer fills the hero band, taking the backdrop's place. Keeping it
+   up there rather than behind the text means the synopsis stays readable
+   on a television, and the Play button never moves under the selection. */
 .media-trailer {
-  flex: 0 0 clamp(320px, 46vw, 720px);
-  aspect-ratio: 16 / 9;
-  border-radius: var(--radius-md);
-  overflow: hidden;
+  position: absolute;
+  inset: 0;
   background: #000;
   animation: trailer-in var(--transition-slow) ease both;
 }
@@ -5434,7 +5450,12 @@ html.tv-mode {
   display: block;
 }
 
-.media-modal.trailer-playing .media-poster {
+.media-modal.trailer-playing .media-hero-img,
+.media-modal.trailer-playing .media-hero-fade {
+  display: none;
+}
+
+.media-modal.trailer-playing .media-hero-title {
   display: none;
 }
 
@@ -5447,9 +5468,4 @@ html.tv-mode {
   .media-trailer { animation: none; }
 }
 
-@media (max-width: 768px) {
-  .media-trailer {
-    flex-basis: auto;
-    width: 100%;
-  }
-}
+

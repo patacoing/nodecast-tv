@@ -498,7 +498,12 @@ class MoviesPage {
     }
 
     renderMovieDetails(meta) {
-        document.getElementById('movie-poster').src = meta.poster || '/img/placeholder.png';
+        // The hero wants a 16:9 still. The poster is the wrong shape for it
+        // but beats an empty band for the films that have no backdrop.
+        const hero = document.getElementById('movie-backdrop');
+        hero.src = meta.backdrop || meta.poster || '/img/placeholder.png';
+        hero.classList.toggle('is-poster', !meta.backdrop && !!meta.poster);
+
         document.getElementById('movie-title').textContent = meta.title || '';
         document.getElementById('movie-meta').textContent = Metadata.summaryLine(meta);
         document.getElementById('movie-plot').textContent =
