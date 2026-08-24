@@ -195,13 +195,14 @@ class MediaDialog {
         layer.className = 'trailer-layer';
 
         const iframe = document.createElement('iframe');
+        // With sound. A browser normally refuses to autoplay anything
+        // audible without a gesture, but the wrapper sets
+        // mediaPlaybackRequiresUserGesture=false, so on the television it
+        // plays as intended. tabindex=-1 keeps the d-pad out of the iframe:
+        // the selection has to stay on the Play button.
         iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}`
-            + '?autoplay=1&mute=1&controls=0&modestbranding=1&rel=0'
+            + '?autoplay=1&mute=0&controls=0&modestbranding=1&rel=0'
             + '&playsinline=1&iv_load_policy=3';
-        // Muted, because a browser refuses to autoplay anything else, and
-        // because a trailer blaring out while you browse is not wanted.
-        // tabindex=-1 keeps the d-pad out of the iframe: the selection has
-        // to stay on the Play button.
         iframe.allow = 'autoplay; encrypted-media';
         iframe.setAttribute('tabindex', '-1');
         iframe.setAttribute('title', 'Trailer');
@@ -211,32 +212,22 @@ class MediaDialog {
         document.body.appendChild(layer);
         this.trailerLayer = layer;
 
-        // On the television the trailer takes the whole screen. Not a
-        // stylistic choice: this WebView hands a playing video to a
-        // hardware overlay, and it only paints that overlay when the player
-        // is full screen. The identical iframe, in the identical layer,
-        // renders at 960x540 and stays black at 368x207. Established by
-        // resizing it on the device and watching the picture appear.
-        if (document.documentElement.classList.contains('tv-mode')) {
-            layer.classList.add('trailer-layer-full');
-            // Any key brings the viewer back to the film rather than
-            // navigating a dialog they can no longer see.
-            this.dismissTrailer = (e) => {
-                if (e.altKey || e.ctrlKey || e.metaKey) return;
-                this.stopTrailer();
-                e.preventDefault();
-                e.stopPropagation();
-            };
-            // On window, so it runs before the d-pad's own capture listener
-            window.addEventListener('keydown', this.dismissTrailer, true);
-        } else {
-            this.positionTrailer();
-            // The box scrolls under it, so the layer has to follow the hero
-            this.trackTrailer = () => this.positionTrailer();
-            this.scroller = this.root.querySelector('.media-modal-box');
-            this.scroller?.addEventListener('scroll', this.trackTrailer, { passive: true });
-            window.addEventListener('resize', this.trackTrailer);
-        }
+        // Parked over the hero band rather than taking the whole screen.
+        // It lives in a layer of its own all the same: nested inside the
+        // dialog's box and hero, the video surface went unpainted whatever
+        // the ancestors' clipping and animation were stripped down to.
+        //
+        // The dialog widens while it plays, because this WebView will not
+        // paint a small video: measured on the device, the same trailer in
+        // the same layer is black at 368px across and plays at 480px. The
+        // dialog is sized for reading the rest of the time, which puts its
+        // hero under that line.
+        this.root?.classList.add('trailer-wide');
+        this.positionTrailer();
+        this.trackTrailer = () => this.positionTrailer();
+        this.scroller = this.root.querySelector('.media-modal-box');
+        this.scroller?.addEventListener('scroll', this.trackTrailer, { passive: true });
+        window.addEventListener('resize', this.trackTrailer);
 
         this.root?.classList.add('trailer-playing');
     }
@@ -273,6 +264,7 @@ class MediaDialog {
         // hidden keeps its audio and its network stream running.
         this.trailerLayer?.remove();
         this.trailerLayer = null;
+        this.root?.classList.remove('trailer-wide');
 
         if (this.trailerEl) {
             this.trailerEl.replaceChildren();

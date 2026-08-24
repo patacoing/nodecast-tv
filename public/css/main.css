@@ -5363,6 +5363,14 @@ html.tv-mode {
   border-radius: 0;
 }
 
+/* Wide enough that the WebView paints the video at all -- see playTrailer.
+   Only while a trailer is running; the dialog is sized for reading the
+   rest of the time. */
+.media-modal.trailer-wide .media-modal-box {
+  max-width: min(560px, 94vw);
+  transition: max-width var(--transition-normal) ease;
+}
+
 .media-modal.trailer-playing .media-trailer {
   animation: none;
 }
@@ -5612,13 +5620,6 @@ html.tv-mode {
   z-index: 1001;
   background: #000;
   overflow: hidden;
-}
-
-/* Full screen on a television, where a smaller player is never painted. */
-.trailer-layer-full {
-  inset: 0;
-  width: auto;
-  height: auto;
 }
 
 .trailer-layer iframe {
