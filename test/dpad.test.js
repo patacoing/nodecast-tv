@@ -839,3 +839,45 @@ describe('the search box clear button is not a stop', () => {
     press(w, 'ArrowLeft');
     check('and back again', id(w), 'search');
 });
+
+// ---------------------------------------------------------------
+// A carousel is a closed list. At its end there is nothing to the right
+// and the selection stays put; leaving it sideways lands in whatever row
+// happens to sit nearby, which reads as the selection jumping for no
+// reason. The channel sidebar is not a carousel and still escapes.
+// ---------------------------------------------------------------
+describe('a carousel keeps its selection', () => {
+    const w = build(`
+      <div id="page-movies" class="page active">
+        <section class="cat-row">
+          <div class="horizontal-scroll">
+            <div class="movie-card" id="a1" data-rect="40,100,140,210"></div>
+            <div class="movie-card" id="a2" data-rect="200,100,140,210"></div>
+          </div>
+        </section>
+        <section class="cat-row">
+          <div class="horizontal-scroll">
+            <div class="movie-card" id="b1" data-rect="40,360,140,210"></div>
+            <div class="movie-card" id="b2" data-rect="200,360,140,210"></div>
+          </div>
+        </section>
+      </div>`);
+
+    w.document.getElementById('a1').focus();
+    press(w, 'ArrowRight');
+    check('right walks the row', id(w), 'a2');
+
+    const ev = press(w, 'ArrowRight');
+    check('right at the end stays put', id(w), 'a2');
+    check('and the key is not swallowed', ev.defaultPrevented, false);
+
+    press(w, 'ArrowLeft');
+    check('left walks back', id(w), 'a1');
+
+    press(w, 'ArrowLeft');
+    check('left at the start stays put', id(w), 'a1');
+
+    // down still crosses into the next row, which is how you leave one
+    press(w, 'ArrowDown');
+    check('down reaches the row below', id(w), 'b1');
+});

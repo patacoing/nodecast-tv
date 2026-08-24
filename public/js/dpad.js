@@ -199,6 +199,21 @@
             // left, to the player controls pinned at the bottom right.
             const sameRow = ahead.filter(c => c.to.top < from.bottom && c.to.bottom > from.top);
 
+            // A carousel is a closed list: at its end there is nothing to
+            // the right, and the selection stays where it is. Leaving it
+            // sideways lands in whatever row happens to sit nearby, which
+            // reads as the selection jumping for no reason.
+            const carousel = current.closest('.horizontal-scroll');
+            if (carousel) {
+                const inside = sameRow.filter(c => c.el.closest('.horizontal-scroll') === carousel);
+                if (!inside.length) return null;
+                let best = null, bestScore = Infinity;
+                for (const c of inside) {
+                    if (c.primary < bestScore) { bestScore = c.primary; best = c; }
+                }
+                return best.el;
+            }
+
             // Leaving the row must not land in the navbar. It is a landmark
             // reached by pressing up, and letting a sideways press fly into
             // it means that from the channel list -- whose right-hand side

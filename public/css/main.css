@@ -5184,9 +5184,28 @@ html.tv-mode {
 /* -webkit-overflow-scrolling: touch puts a scroller on a compositing
    layer of its own, which is a known way to lose an iframe or a video
    inside it -- the sound plays and the picture never arrives. A television
-   has no touch scrolling to accelerate, so it buys nothing here. */
-.tv-mode * {
+   has no touch scrolling to accelerate, so it buys nothing here.
+   Listed rather than applied through `*`, which made the browser walk
+   every element on a page that holds thousands of them. */
+.tv-mode .media-modal-box,
+.tv-mode .movies-grid,
+.tv-mode .series-grid,
+.tv-mode .horizontal-scroll,
+.tv-mode .channel-list,
+.tv-mode #page-home,
+.tv-mode .epg-scroll-container,
+.tv-mode .settings-container {
   -webkit-overflow-scrolling: auto;
+}
+
+/* A full-screen backdrop-filter is the most expensive thing on the page,
+   and a Fire TV Stick's GPU does not keep up: the picture behind the
+   dialog comes back in fragments, which reads as the screen flashing. The
+   backdrop is already 72% black -- the blur was never doing much. */
+.tv-mode .media-modal,
+.tv-mode .modal {
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 
 /* An animation with a transform leaves the element on its own layer even
@@ -5691,7 +5710,16 @@ html.tv-mode {
 .cat-row-title {
   font-size: 1.1rem;
   font-weight: 600;
-  margin: 0 0 var(--space-sm);
+  margin: 0;
+}
+
+/* The row cancels its own top padding with a negative margin so cards sit
+   where they would have anyway. That padding is the room the focus ring
+   and the focus scale need, and cancelling it here put the ring on top of
+   the heading. The row keeps its padding and the heading stops just above
+   it. */
+.cat-row .horizontal-scroll {
+  margin-top: 0;
 }
 
 .tv-mode .cat-row {
