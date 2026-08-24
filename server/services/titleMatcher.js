@@ -20,15 +20,29 @@ const TAGS = [
 // Country/language prefixes: "FR - ", "|FR| ", "[FR] ", "FR: "
 const PREFIX_RE = /^\s*[\[|(]?\s*[a-z]{2,3}\s*[\])|]?\s*[-:|]\s*/i;
 
+/** Does a bracket's content consist of nothing but decoration? */
+function isDecoration(inner) {
+    const words = normalize(inner).split(' ').filter(Boolean);
+    return words.length > 0 && words.every(w => TAGS.includes(w));
+}
+
 /**
- * Split a catalogue name into the title to search for and the year, if the
- * name carries one.
+ * Split a catalogue name into the title to search for, the year if the name
+ * carries one, and other spellings worth trying if that title finds nothing.
  *
- * Returns { title, year, fallbackTitle }. A year in brackets is almost
- * always a year. A bare trailing one may well be part of the title --
- * "Blade Runner 2049" is the famous case -- so it is only taken as a year
- * when it is plausibly in the past, and fallbackTitle then carries the
- * untouched title so a failed search can be retried the other way round.
+ * Returns { title, year, alternatives }.
+ *
+ * Two judgement calls, both of which can go either way on a given name,
+ * which is why the alternatives exist rather than a single answer:
+ *
+ *  - A bracket holding only tags is decoration and goes: "Stay (VOSTFR)".
+ *    A bracket holding anything else is part of the name and stays, because
+ *    dropping it silently loses titles -- "TKT (T'inquiète)" -- and
+ *    sometimes loses the only searchable part of them, as in a Japanese
+ *    title glossed with its French one. Both readings get tried.
+ *  - A year in brackets is almost always a year. A bare trailing one may
+ *    well be part of the title, "Blade Runner 2049" being the famous case,
+ *    so it is only read as a year when it is plausibly in the past.
  */
 function parseName(rawName) {
     let name = String(rawName || '').trim();
@@ -40,8 +54,7 @@ function parseName(rawName) {
         name = name.replace(PREFIX_RE, '');
     } while (name !== previous && name.length > 0);
 
-    // A year in brackets is a strong signal and is worth pulling out before
-    // the brackets themselves are stripped below.
+    // Pull the year out before the brackets around it are considered.
     let year = null;
     const yearMatch = name.match(/[([](19\d{2}|20\d{2})[)\]]/);
     if (yearMatch) {
@@ -49,8 +62,14 @@ function parseName(rawName) {
         name = name.replace(yearMatch[0], ' ');
     }
 
-    // Whatever is left in brackets is decoration: (VOSTFR), [MULTI]...
-    name = name.replace(/[([][^)\]]*[)\]]/g, ' ');
+    // Decoration goes; anything else in brackets is kept, and noted so it
+    // can also be tried on its own and by its absence.
+    const kept = [];
+    name = name.replace(/[([]([^)\]]*)[)\]]/g, (match, inner) => {
+        if (isDecoration(inner)) return ' ';
+        kept.push(inner.trim());
+        return match;
+    });
 
     // Bare tags, with the surrounding separators
     const tagRe = new RegExp(`(^|[\\s._-])(${TAGS.join('|')})(?=[\\s._-]|$)`, 'gi');
@@ -60,20 +79,34 @@ function parseName(rawName) {
         name = name.replace(tagRe, ' ');
     } while (name !== stripped);
 
+    const alternatives = [];
+
     // A trailing bare year: "Cry Macho 2021". Anything set in the future is
     // part of the title, not a release date.
-    let fallbackTitle = null;
     if (year === null) {
         const trailing = name.match(/[\s._-](19\d{2}|20\d{2})\s*$/);
         const maxYear = new Date().getFullYear() + 1;
         if (trailing && Number(trailing[1]) <= maxYear) {
             year = Number(trailing[1]);
-            fallbackTitle = clean(name);
+            alternatives.push(clean(name));       // the year read as title
             name = name.slice(0, trailing.index);
         }
     }
 
-    return { title: clean(name), year, fallbackTitle };
+    const title = clean(name);
+
+    // The name without its parenthetical, then the parenthetical alone: one
+    // of the two is the title TMDB knows it by.
+    if (kept.length) {
+        alternatives.push(clean(name.replace(/[([][^)\]]*[)\]]/g, ' ')));
+        for (const inner of kept) alternatives.push(clean(inner));
+    }
+
+    return {
+        title,
+        year,
+        alternatives: [...new Set(alternatives)].filter(a => a && a !== title)
+    };
 }
 
 /** Collapse whitespace and drop the punctuation left by the stripping,

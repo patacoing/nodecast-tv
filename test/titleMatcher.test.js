@@ -16,6 +16,15 @@ describe('parseName: decoration', () => {
         assert.equal(title('Horizonte (VOSTFR)'), 'Horizonte');
     });
 
+    it('drops a tag padded with spaces', () => {
+        // "Toy Story 5 ( FHD )", straight from the catalogue
+        assert.equal(title('Toy Story 5 ( FHD )'), 'Toy Story 5');
+    });
+
+    it('needs no alternative once a bracket was only decoration', () => {
+        assert.deepEqual(parseName('Stay (VOSTFR)').alternatives, []);
+    });
+
     it('drops the trailing full stop some providers add', () => {
         assert.equal(title('Cry Macho.'), 'Cry Macho');
     });
@@ -69,19 +78,48 @@ describe('parseName: years', () => {
         assert.equal(title('Blade Runner 2049'), 'Blade Runner 2049');
     });
 
-    it('offers the untouched title as a fallback for a bare year', () => {
+    it('offers the untouched title as an alternative for a bare year', () => {
         // "Flash Back 2012" is a title, not a film from 2012, and only a
         // failed search can tell us that
-        assert.equal(parseName('Flash Back 2012').fallbackTitle, 'Flash Back 2012');
+        assert.deepEqual(parseName('Flash Back 2012').alternatives,
+            ['Flash Back 2012']);
     });
 
-    it('needs no fallback for a bracketed year', () => {
-        assert.equal(parseName('Interstellar (2014)').fallbackTitle, null);
+    it('needs no alternative for a bracketed year', () => {
+        assert.deepEqual(parseName('Interstellar (2014)').alternatives, []);
     });
 
     it('handles a name that is nothing but decoration', () => {
         const p = parseName('(VOSTFR)');
         assert.equal(p.title, '');
+    });
+});
+
+describe('parseName: a bracket that is part of the name', () => {
+    // Both of these came back unmatched from a real pass, because every
+    // bracket used to be treated as decoration and thrown away.
+    it('keeps a parenthetical that is not a tag', () => {
+        assert.equal(title("TKT (T'inquiète)"), "TKT (T'inquiète)");
+    });
+
+    it('offers the name without it, and it alone', () => {
+        assert.deepEqual(parseName("TKT (T'inquiète)").alternatives,
+            ['TKT', "T'inquiète"]);
+    });
+
+    it('handles a title glossed in another language', () => {
+        // The parenthetical is the only part TMDB is likely to know
+        const p = parseName('ディスイズアイ (C\'est vraiment moi)');
+        assert.ok(p.alternatives.includes("C'est vraiment moi"));
+    });
+
+    it('still drops decoration next to a kept parenthetical', () => {
+        assert.equal(title("TKT (T'inquiète) (VOSTFR)"), "TKT (T'inquiète)");
+    });
+
+    it('offers no alternative equal to the title itself', () => {
+        const p = parseName('Un film');
+        assert.deepEqual(p.alternatives, []);
     });
 });
 

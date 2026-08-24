@@ -207,10 +207,12 @@ class TmdbEnricher {
 
         let choice = await this.searchOnce(kind, parsed.title, year);
 
-        // "Blade Runner 2049" and friends: the trailing number was taken for
-        // a release year and probably was not. Ask again the other way.
-        if (!choice && parsed.fallbackTitle) {
-            choice = await this.searchOnce(kind, parsed.fallbackTitle, null);
+        // The other readings of the name: the parenthetical kept or dropped,
+        // a trailing number read as a year or as part of the title. Capped
+        // so a pathological name cannot cost a dozen searches.
+        for (const alt of parsed.alternatives.slice(0, 2)) {
+            if (choice) break;
+            choice = await this.searchOnce(kind, alt, year);
         }
 
         // A title that matched nothing with a year in hand may simply be
@@ -347,6 +349,21 @@ class TmdbEnricher {
                 matched_name = excluded.matched_name,
                 last_attempt_at = excluded.last_attempt_at
         `).run(item.id, kind, tmdbId, status, confidence, item.name, Date.now());
+    }
+
+    /**
+     * Forget every unmatched entry so the next pass tries again.
+     *
+     * Failures are written down precisely so they are not retried for a
+     * month, which is right while the matching rules stay put and wrong the
+     * moment they improve: without this, a better parser would take thirty
+     * days to reach the titles it was written for.
+     */
+    resetUnmatched() {
+        const { changes } = getDb()
+            .prepare(`DELETE FROM tmdb_links WHERE status = 'unmatched'`).run();
+        console.log(`[TMDB] Cleared ${changes} unmatched entries for retry`);
+        return changes;
     }
 
     /**

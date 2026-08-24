@@ -50,4 +50,23 @@ router.post('/run', requireAdmin, (req, res) => {
     res.json({ started: true });
 });
 
+/**
+ * POST /api/tmdb/retry
+ * Forget the entries that matched nothing, so the next pass tries them
+ * again rather than waiting out the month-long retry delay. This is what
+ * makes an improvement to the matching rules take effect now.
+ */
+router.post('/retry', requireAdmin, (req, res) => {
+    try {
+        const cleared = enricher.resetUnmatched();
+        if (enricher.isEnabled()) {
+            enricher.runPass().catch(err =>
+                console.error('[TMDB] Retry pass failed:', err));
+        }
+        res.json({ cleared, started: enricher.isEnabled() });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 module.exports = router;
