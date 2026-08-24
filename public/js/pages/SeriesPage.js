@@ -402,7 +402,7 @@ class SeriesPage {
         // Set header info. Xtream describes its series fairly well, so this
         // is almost always the provider's own text; TMDB only steps in for
         // the occasional entry that came through bare.
-        const provider = {
+        const listing = {
             title: series.name,
             poster: series.cover,
             plot: series.plot,
@@ -410,11 +410,11 @@ class SeriesPage {
             rating: series.rating,
             genres: series.genre ? series.genre.split(/\s*[,\/]\s*/) : null
         };
-        this.renderSeriesHeader(Metadata.merge(provider, null));
+        this.renderSeriesHeader(Metadata.forDisplay(listing, null));
 
-        Metadata.fetch(series.id).then(tmdb => {
-            if (tmdb && this.currentSeries === series) {
-                this.renderSeriesHeader(Metadata.merge(provider, tmdb));
+        Metadata.fetch(series.id).then(stored => {
+            if (stored && this.currentSeries === series) {
+                this.renderSeriesHeader(Metadata.forDisplay(listing, stored));
             }
         });
 

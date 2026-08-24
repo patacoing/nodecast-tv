@@ -196,6 +196,27 @@ function initSchema() {
             ON tmdb_links(status, last_attempt_at);
     `);
 
+    // What the provider says about one catalogue entry, beyond what its
+    // listing carries. An Xtream movie listing has a name, a poster and a
+    // rating; the synopsis, cast, director and runtime live behind a
+    // per-item call, which is fetched once and kept here so that displaying
+    // a film never has to reach outside the database.
+    //
+    // Separate from playlist_items because the sync rewrites that table's
+    // data column wholesale on every pass.
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS item_details (
+            item_id TEXT PRIMARY KEY,      -- playlist_items.id
+            plot TEXT,
+            cast_list TEXT,                -- 'cast' is reserved in SQL
+            director TEXT,
+            genres TEXT,                   -- JSON array of names
+            runtime INTEGER,               -- minutes
+            year TEXT,
+            fetched_at INTEGER NOT NULL
+        );
+    `);
+
     // Migration: Add source_id column if missing (for existing databases)
     try {
         db.exec(`ALTER TABLE watch_history ADD COLUMN source_id INTEGER`);

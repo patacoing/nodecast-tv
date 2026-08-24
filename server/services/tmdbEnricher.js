@@ -59,12 +59,17 @@ function declaredTmdbId(info) {
 const CANDIDATE_FROM = `
     FROM playlist_items p
     LEFT JOIN tmdb_links l ON l.item_id = p.id
+    LEFT JOIN item_details d ON d.item_id = p.id
     WHERE p.type IN ('movie', 'series')
       AND (
             l.item_id IS NULL
          OR (l.status = 'unmatched'
              AND l.attempts < ?
              AND (l.matched_name <> p.name OR l.last_attempt_at < ?))
+         -- a film already identified but whose own synopsis we have not
+         -- stored yet: the provider's words win over TMDB's, so they have
+         -- to be in the database for the details panel to show them
+         OR (p.type = 'movie' AND d.item_id IS NULL)
       )`;
 
 class TmdbEnricher {
@@ -214,6 +219,11 @@ class TmdbEnricher {
             ? await this.vodInfo(item).catch(() => null)
             : null;
 
+        if (info) this.saveDetails(item, info);
+
+        // Already identified -- this entry only came back for its details.
+        if (this.isLinked(item.id)) return true;
+
         const declared = declaredTmdbId(info);
         if (declared && await this.linkByTmdbId(item, kind, declared)) return true;
 
@@ -318,6 +328,45 @@ class TmdbEnricher {
     // Persistence
     // ----------------------------------------------------------
 
+    isLinked(itemId) {
+        return !!getDb()
+            .prepare(`SELECT 1 FROM tmdb_links WHERE item_id = ? AND status = 'matched'`)
+            .get(itemId);
+    }
+
+    /** The provider's own description of a film, from its per-item record. */
+    saveDetails(item, info) {
+        const i = info?.info || {};
+        const runtime = Number(i.duration_secs)
+            ? Math.round(Number(i.duration_secs) / 60)
+            : null;
+        const genres = String(i.genre || '')
+            .split(/\s*[,\/]\s*/).map(g => g.trim()).filter(Boolean);
+
+        getDb().prepare(`
+            INSERT INTO item_details (
+                item_id, plot, cast_list, director, genres, runtime, year, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(item_id) DO UPDATE SET
+                plot = excluded.plot,
+                cast_list = excluded.cast_list,
+                director = excluded.director,
+                genres = excluded.genres,
+                runtime = excluded.runtime,
+                year = excluded.year,
+                fetched_at = excluded.fetched_at
+        `).run(
+            item.id,
+            i.plot || null,
+            i.cast || null,
+            i.director || null,
+            JSON.stringify(genres),
+            runtime,
+            String(i.releasedate || i.release_date || '').slice(0, 4) || null,
+            Date.now()
+        );
+    }
+
     hasTitle(kind, tmdbId) {
         const db = getDb();
         return !!db.prepare('SELECT 1 FROM tmdb_titles WHERE kind = ? AND tmdb_id = ?')
@@ -410,11 +459,14 @@ class TmdbEnricher {
      */
     purgeOrphanLinks() {
         const db = getDb();
-        const { changes } = db.prepare(`
-            DELETE FROM tmdb_links
-            WHERE item_id NOT IN (SELECT id FROM playlist_items)
-        `).run();
-        if (changes > 0) console.log(`[TMDB] Dropped ${changes} orphan links`);
+        let changes = 0;
+        for (const table of ['tmdb_links', 'item_details']) {
+            changes += db.prepare(`
+                DELETE FROM ${table}
+                WHERE item_id NOT IN (SELECT id FROM playlist_items)
+            `).run().changes;
+        }
+        if (changes > 0) console.log(`[TMDB] Dropped ${changes} orphan rows`);
         return changes;
     }
 
@@ -447,6 +499,13 @@ class TmdbEnricher {
             JOIN tmdb_titles t ON t.kind = l.kind AND t.tmdb_id = l.tmdb_id
             WHERE l.item_id = ? AND l.status = 'matched'
         `).get(itemId) || null;
+    }
+
+    /** What the provider itself said about the entry, or null. */
+    getDetailsForItem(itemId) {
+        return getDb()
+            .prepare('SELECT * FROM item_details WHERE item_id = ?')
+            .get(itemId) || null;
     }
 }
 

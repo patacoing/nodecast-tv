@@ -400,7 +400,7 @@ class MoviesPage {
         // Its own history entry, so Back closes the film rather than the page
         history.pushState({ page: 'movies', detail: movie.id }, '', '#movies');
 
-        const provider = {
+        const listing = {
             title: movie.name,
             poster: movie.stream_icon || movie.cover,
             plot: movie.plot,
@@ -411,16 +411,16 @@ class MoviesPage {
             director: movie.director
         };
 
-        // Draw what the provider gave straight away, then fill the gaps when
-        // TMDB answers: the panel must not wait on a network round trip
-        // that usually 404s.
-        this.renderMovieDetails(Metadata.merge(provider, null));
+        // Draw the listing straight away, then fill the gaps once the
+        // stored metadata comes back: the panel must not wait on a round
+        // trip, even one that only reads our own database.
+        this.renderMovieDetails(Metadata.forDisplay(listing, null));
         document.getElementById('movie-play-btn')?.focus();
 
-        const tmdb = await Metadata.fetch(movie.id);
+        const stored = await Metadata.fetch(movie.id);
         // The user may have gone back, or moved on to another film already
-        if (tmdb && this.currentMovie === movie) {
-            this.renderMovieDetails(Metadata.merge(provider, tmdb));
+        if (stored && this.currentMovie === movie) {
+            this.renderMovieDetails(Metadata.forDisplay(listing, stored));
         }
     }
 
@@ -437,7 +437,7 @@ class MoviesPage {
         document.getElementById('movie-credits').textContent = credits.join(' — ');
 
         document.getElementById('movie-source').textContent =
-            meta.enriched ? 'Description from TMDB' : '';
+            meta.plotFromTmdb ? 'Description from TMDB' : '';
     }
 
     hideMovieDetails() {

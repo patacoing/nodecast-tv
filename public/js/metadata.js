@@ -1,21 +1,30 @@
 /**
- * Metadata for a catalogue entry: what the provider gave us, topped up
- * from TMDB where it gave us nothing.
+ * Metadata for a catalogue entry, assembled from several sources in order
+ * of authority.
  *
- * The provider always wins a field it actually filled in. Its data
- * describes the copy you are about to watch -- that poster is the artwork
- * for this release, that rating is the one the rest of the app sorts by --
- * whereas TMDB describes the work in general. Series come through fairly
- * complete; a movie listing carries a name, a poster and a rating and
- * nothing else, so in practice TMDB supplies the synopsis, the year, the
- * runtime and the genres for movies and almost nothing for series.
+ * The provider wins any field it actually filled in. Its data describes the
+ * copy you are about to watch -- that poster is the artwork for this
+ * release, that synopsis is the one written for this listing -- whereas
+ * TMDB describes the work in general. TMDB is there to fill the gaps, and
+ * for the handful of things no provider gives at all, such as a backdrop.
+ *
+ * The provider speaks in two places: the catalogue listing, which carries
+ * a name, a poster and a rating, and its per-item record, which carries the
+ * synopsis, cast, director and runtime. Both are read from our own
+ * database -- the background job is what put them there, so opening a film
+ * never reaches outside.
  */
+
+// Every field the details panel knows how to show. Ordered sources are
+// consulted for each one in turn, first filled value wins.
+const FIELDS = ['title', 'poster', 'plot', 'year', 'rating',
+    'runtime', 'genres', 'cast', 'director'];
 
 const Metadata = {
     /**
-     * TMDB's record for a catalogue entry, or null. A 404 is the ordinary
-     * answer for anything a pass has not identified, and a server without a
-     * TMDB key never identifies anything, so this must stay quiet.
+     * The stored metadata for a catalogue entry: { provider, tmdb }, either
+     * of which may be null. A 404 is the ordinary answer for anything the
+     * background job has not reached yet, so this must stay quiet.
      */
     async fetch(itemId) {
         if (!itemId) return null;
@@ -35,44 +44,63 @@ const Metadata = {
         return true;
     },
 
-    /**
-     * Merge one field: the provider's value, or TMDB's when the provider
-     * has none.
-     */
-    pick(providerValue, tmdbValue) {
-        return this.filled(providerValue) ? providerValue
-            : (this.filled(tmdbValue) ? tmdbValue : null);
-    },
-
-    /**
-     * Everything the details panel needs. `provider` is a plain object of
-     * already-extracted fields so that movies and series, whose payloads
-     * name things differently, can both use this.
-     */
-    merge(provider, tmdb) {
-        const t = tmdb || {};
-        const poster = this.pick(provider.poster, t.poster_path
-            ? `https://image.tmdb.org/t/p/w500${t.poster_path}` : null);
-
+    /** TMDB's record in the shape the panel uses. */
+    fromTmdb(t) {
+        if (!t) return null;
         return {
-            title: this.pick(provider.title, t.title),
-            poster,
-            backdrop: t.backdrop_path
-                ? `https://image.tmdb.org/t/p/w1280${t.backdrop_path}` : null,
-            plot: this.pick(provider.plot, t.overview),
-            year: this.pick(provider.year, t.year),
-            rating: this.pick(provider.rating, t.vote_average),
-            runtime: this.pick(provider.runtime, t.runtime),
-            genres: this.pick(provider.genres, t.genres),
-            cast: this.pick(provider.cast, null),
-            director: this.pick(provider.director, null),
-            // What came from where, so the panel can say so rather than
-            // passing TMDB's work off as the provider's.
-            enriched: !!tmdb
+            title: t.title,
+            poster: t.poster_path
+                ? `https://image.tmdb.org/t/p/w500${t.poster_path}` : null,
+            plot: t.overview,
+            year: t.year,
+            rating: t.vote_average,
+            runtime: t.runtime,
+            genres: t.genres,
+            cast: null,
+            director: null
         };
     },
 
-    /** "2014 · 2 h 49 · Science-Fiction, Drame · 8.4" */
+    /**
+     * Combine sources in order of authority: the first one to have filled
+     * in a field wins it. Sources must already share the field names above;
+     * use fromTmdb() for a TMDB record.
+     */
+    merge(...sources) {
+        const present = sources.filter(Boolean);
+        const out = {};
+        for (const field of FIELDS) {
+            const source = present.find(s => this.filled(s[field]));
+            out[field] = source ? source[field] : null;
+        }
+        return out;
+    },
+
+    /**
+     * Everything the details panel needs. `listing` is what the catalogue
+     * grid already holds; `stored` is what fetch() returned, or null.
+     */
+    forDisplay(listing, stored) {
+        const tmdb = this.fromTmdb(stored?.tmdb);
+        const merged = this.merge(listing, stored?.provider, tmdb);
+
+        // No provider supplies a backdrop, so it is TMDB's or nothing.
+        merged.backdrop = stored?.tmdb?.backdrop_path
+            ? `https://image.tmdb.org/t/p/w1280${stored.tmdb.backdrop_path}` : null;
+
+        // Whether the synopsis on screen is TMDB's work, so the panel can
+        // say so rather than passing it off as the provider's. Only the
+        // description is credited: it is the one field a viewer reads as
+        // authored text.
+        merged.plotFromTmdb = !!(merged.plot && tmdb
+            && merged.plot === tmdb.plot
+            && !this.filled(listing?.plot)
+            && !this.filled(stored?.provider?.plot));
+
+        return merged;
+    },
+
+    /** "2014 · 2 h 49 · Science-Fiction, Drame · ★ 8.4" */
     summaryLine(meta) {
         const bits = [];
         if (meta.year) bits.push(meta.year);

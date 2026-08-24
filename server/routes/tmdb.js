@@ -20,15 +20,39 @@ router.get('/status', (req, res) => {
 
 /**
  * GET /api/tmdb/item/:itemId
- * The metadata for one catalogue entry, or 404. itemId is the composite
- * "sourceId:itemId" key used throughout playlist_items.
+ *
+ * Everything the details panel needs for one catalogue entry, in two
+ * clearly separated halves: what the provider said about it, and what TMDB
+ * says about the work. The precedence between them is the caller's to
+ * apply -- the provider wins any field it filled in.
+ *
+ * itemId is the composite "sourceId:itemId" key used by playlist_items.
+ * A read from SQLite and nothing else: the enrichment that filled these
+ * tables is a background job, so opening a film never reaches outside.
  */
 router.get('/item/:itemId', (req, res) => {
     try {
-        const row = enricher.getForItem(req.params.itemId);
-        if (!row) return res.status(404).json({ error: 'Not enriched' });
-        res.json({ ...row, data: row.data ? JSON.parse(row.data) : null,
-            genres: row.genres ? JSON.parse(row.genres) : [] });
+        const tmdbRow = enricher.getForItem(req.params.itemId);
+        const detailRow = enricher.getDetailsForItem(req.params.itemId);
+        if (!tmdbRow && !detailRow) {
+            return res.status(404).json({ error: 'Not enriched' });
+        }
+
+        res.json({
+            provider: detailRow ? {
+                plot: detailRow.plot,
+                cast: detailRow.cast_list,
+                director: detailRow.director,
+                genres: detailRow.genres ? JSON.parse(detailRow.genres) : [],
+                runtime: detailRow.runtime,
+                year: detailRow.year
+            } : null,
+            tmdb: tmdbRow ? {
+                ...tmdbRow,
+                data: tmdbRow.data ? JSON.parse(tmdbRow.data) : null,
+                genres: tmdbRow.genres ? JSON.parse(tmdbRow.genres) : []
+            } : null
+        });
     } catch (err) {
         res.status(500).json({ error: err.message });
     }

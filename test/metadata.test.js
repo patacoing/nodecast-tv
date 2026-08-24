@@ -3,8 +3,12 @@
  *
  * The rule the whole file exists to enforce: the provider wins any field it
  * actually filled in, and TMDB only fills the gaps. Getting this backwards
- * would replace artwork and ratings that describe the copy being watched
- * with ones that describe the work in general.
+ * would replace the synopsis written for this listing, and the artwork for
+ * this release, with ones describing the work in general.
+ *
+ * The provider speaks twice -- through the catalogue listing and through
+ * its per-item record -- so the merge takes ordered sources rather than a
+ * pair.
  *
  * metadata.js is a browser script that hangs itself off window, so it is
  * evaluated inside a jsdom window rather than required.
@@ -22,6 +26,7 @@ const { window } = new JSDOM('<body></body>', { runScripts: 'outside-only' });
 window.eval(SRC);
 const Metadata = window.Metadata;
 
+// A TMDB row as the endpoint returns it
 const TMDB = {
     title: 'Interstellar',
     year: '2014',
@@ -31,6 +36,26 @@ const TMDB = {
     genres: ['Science-Fiction', 'Drame'],
     runtime: 169,
     vote_average: 8.4
+};
+
+// What an Xtream movie listing actually holds: a name, a poster, a rating
+const LISTING = {
+    title: 'Interstellar',
+    poster: 'http://provider/poster.jpg',
+    rating: 7.2,
+    plot: '',
+    year: null,
+    genres: []
+};
+
+// What the provider's own per-item record adds
+const DETAILS = {
+    plot: 'Le synopsis du fournisseur',
+    cast: 'Matthew McConaughey',
+    director: 'Christopher Nolan',
+    genres: ['Aventure'],
+    runtime: 165,
+    year: '2015'
 };
 
 describe('filled', () => {
@@ -57,93 +82,113 @@ describe('filled', () => {
     });
 });
 
-describe('merge: the provider wins what it filled in', () => {
-    const provider = {
-        title: 'Interstellar VF',
-        poster: 'http://provider/poster.jpg',
-        plot: 'Le synopsis du fournisseur',
-        year: '2015',
-        rating: 7.2,
-        genres: ['Aventure'],
-        cast: 'Matthew McConaughey',
-        director: 'Christopher Nolan'
-    };
-    const meta = Metadata.merge(provider, TMDB);
+describe("the provider's synopsis wins over TMDB's", () => {
+    const meta = Metadata.forDisplay(LISTING, { provider: DETAILS, tmdb: TMDB });
 
-    it('keeps the provider title', () => assert.equal(meta.title, 'Interstellar VF'));
-    it('keeps the provider poster', () =>
-        assert.equal(meta.poster, 'http://provider/poster.jpg'));
-    it('keeps the provider synopsis', () =>
-        assert.equal(meta.plot, 'Le synopsis du fournisseur'));
-    it('keeps the provider year', () => assert.equal(meta.year, '2015'));
-    it('keeps the provider rating', () => assert.equal(meta.rating, 7.2));
-    it('keeps the provider genres', () =>
-        assert.deepEqual(meta.genres, ['Aventure']));
-
-    it('still takes what the provider never has', () => {
-        // No provider field carries a runtime
-        assert.equal(meta.runtime, 169);
+    it('shows the words the provider wrote', () => {
+        assert.equal(meta.plot, 'Le synopsis du fournisseur');
     });
 
-    it('always takes the backdrop, which no provider gives', () => {
+    it('does not credit TMDB for words it did not supply', () => {
+        assert.equal(meta.plotFromTmdb, false);
+    });
+
+    it('takes the cast and director from the provider', () => {
+        assert.equal(meta.cast, 'Matthew McConaughey');
+        assert.equal(meta.director, 'Christopher Nolan');
+    });
+
+    it('takes the runtime and genres from the provider', () => {
+        assert.equal(meta.runtime, 165);
+        assert.deepEqual(meta.genres, ['Aventure']);
+    });
+});
+
+describe('the listing outranks the per-item record', () => {
+    // Both are the provider speaking; the listing is what the grid shows,
+    // so the panel must agree with the card the user just clicked
+    const meta = Metadata.forDisplay(
+        { ...LISTING, year: '2014' },
+        { provider: DETAILS, tmdb: TMDB });
+
+    it('keeps the listing year', () => assert.equal(meta.year, '2014'));
+    it('keeps the listing poster', () =>
+        assert.equal(meta.poster, 'http://provider/poster.jpg'));
+    it('keeps the listing rating', () => assert.equal(meta.rating, 7.2));
+});
+
+describe('TMDB fills what neither provider source has', () => {
+    const meta = Metadata.forDisplay(LISTING, { provider: null, tmdb: TMDB });
+
+    it('supplies the synopsis', () => assert.equal(meta.plot, 'Un synopsis TMDB'));
+    it('credits TMDB for it', () => assert.equal(meta.plotFromTmdb, true));
+    it('supplies the year', () => assert.equal(meta.year, '2014'));
+    it('supplies the genres', () =>
+        assert.deepEqual(meta.genres, ['Science-Fiction', 'Drame']));
+    it('supplies the runtime', () => assert.equal(meta.runtime, 169));
+
+    it('still leaves the listing poster and rating alone', () => {
+        assert.equal(meta.poster, 'http://provider/poster.jpg');
+        assert.equal(meta.rating, 7.2);
+    });
+
+    it('supplies the backdrop, which no provider gives', () => {
         assert.equal(meta.backdrop,
             'https://image.tmdb.org/t/p/w1280/tmdb-backdrop.jpg');
     });
 });
 
-describe('merge: TMDB fills the gaps', () => {
-    // What an Xtream movie listing actually looks like: a name, a poster,
-    // a rating, and nothing else at all
-    const bare = {
-        title: 'Interstellar',
-        poster: 'http://provider/poster.jpg',
-        rating: 7.2,
-        plot: '',
-        year: null,
-        genres: []
-    };
-    const meta = Metadata.merge(bare, TMDB);
+describe('a record with gaps of its own', () => {
+    // The provider's record exists but its synopsis is blank
+    const meta = Metadata.forDisplay(
+        LISTING, { provider: { ...DETAILS, plot: '' }, tmdb: TMDB });
 
-    it('takes the synopsis', () => assert.equal(meta.plot, 'Un synopsis TMDB'));
-    it('takes the year', () => assert.equal(meta.year, '2014'));
-    it('takes the genres', () =>
-        assert.deepEqual(meta.genres, ['Science-Fiction', 'Drame']));
-    it('takes the runtime', () => assert.equal(meta.runtime, 169));
-    it('still keeps the provider poster and rating', () => {
-        assert.equal(meta.poster, 'http://provider/poster.jpg');
-        assert.equal(meta.rating, 7.2);
+    it('falls through to TMDB for the missing field only', () => {
+        assert.equal(meta.plot, 'Un synopsis TMDB');
+        assert.equal(meta.plotFromTmdb, true);
     });
-    it('flags the result as enriched', () => assert.equal(meta.enriched, true));
+
+    it('still takes the rest from the provider', () => {
+        assert.equal(meta.director, 'Christopher Nolan');
+        assert.equal(meta.runtime, 165);
+    });
 });
 
-describe('merge: no TMDB record', () => {
-    const meta = Metadata.merge({ title: 'Un film', poster: null, plot: '' }, null);
+describe('nothing stored yet', () => {
+    const meta = Metadata.forDisplay(LISTING, null);
 
-    it('survives without one', () => assert.equal(meta.title, 'Un film'));
+    it('renders from the listing alone', () => {
+        assert.equal(meta.title, 'Interstellar');
+        assert.equal(meta.poster, 'http://provider/poster.jpg');
+    });
+
     it('leaves the gaps empty rather than inventing', () => {
         assert.equal(meta.plot, null);
-        assert.equal(meta.poster, null);
+        assert.equal(meta.year, null);
         assert.equal(meta.backdrop, null);
     });
-    it('is not flagged as enriched', () => assert.equal(meta.enriched, false));
+
+    it('credits nobody', () => assert.equal(meta.plotFromTmdb, false));
 });
 
-describe('merge: poster fallback', () => {
-    it('builds the TMDB image URL when the provider has no artwork', () => {
-        const meta = Metadata.merge({ title: 'x', poster: '' }, TMDB);
+describe('poster fallback', () => {
+    it('builds the TMDB image URL when no provider artwork exists', () => {
+        const meta = Metadata.forDisplay(
+            { title: 'x', poster: '' }, { provider: null, tmdb: TMDB });
         assert.equal(meta.poster, 'https://image.tmdb.org/t/p/w500/tmdb-poster.jpg');
     });
 
     it('leaves the poster empty when neither side has one', () => {
-        const meta = Metadata.merge({ title: 'x', poster: '' }, { title: 'x' });
+        const meta = Metadata.forDisplay(
+            { title: 'x', poster: '' }, { provider: null, tmdb: { title: 'x' } });
         assert.equal(meta.poster, null);
     });
 });
 
 describe('summaryLine', () => {
     it('lays out year, runtime, genres and rating', () => {
-        assert.equal(
-            Metadata.summaryLine(Metadata.merge({ title: 'x' }, TMDB)),
+        const meta = Metadata.forDisplay({ title: 'x' }, { provider: null, tmdb: TMDB });
+        assert.equal(Metadata.summaryLine(meta),
             '2014 · 2 h 49 · Science-Fiction, Drame · ★ 8.4');
     });
 
