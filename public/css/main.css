@@ -5255,24 +5255,33 @@ html.tv-mode {
 }
 
 /* An Android WebView composites a playing video onto a surface of its own,
-   and an ancestor that filters, clips or rounds its subtree can leave that
-   surface unpainted -- the sound and the subtitles arrive, the picture
-   never does. While a trailer is playing nothing above it does any of
-   those things. */
+   and an ancestor that clips or animates its subtree leaves that surface
+   unpainted: the sound plays, the subtitles appear, and the picture never
+   arrives. Established on the device itself by stripping these one at a
+   time -- two of them matter, and removing only one is not enough:
+   the hero's overflow, and the animation on the trailer's own container.
+   The others go with them because they are the same class of hazard. */
 .media-modal.trailer-playing {
   backdrop-filter: none;
+  animation: none;
 }
 
 /* Never overflow:visible on the box -- it is the scroll container, and
    removing its overflow throws the scroll position away and takes the
-   scrolling with it. Only the properties that are actually suspect go. */
+   scrolling with it. A scrollable ancestor turns out to be harmless here
+   anyway; it is the clipping directly around the video that is not. */
 .media-modal.trailer-playing .media-modal-box {
   border-radius: 0;
   animation: none;
 }
 
 .media-modal.trailer-playing .media-hero {
+  overflow: visible;
   border-radius: 0;
+}
+
+.media-modal.trailer-playing .media-trailer {
+  animation: none;
 }
 
 .media-modal.hidden {
@@ -5510,6 +5519,30 @@ html.tv-mode {
     left: var(--space-md);
     right: var(--space-md);
   }
+}
+
+/* The trailer's own layer, parked over the hero band. It sits directly
+   under body rather than inside the dialog because that is the only place
+   an Android WebView will paint the video -- see playTrailer(). */
+.trailer-layer {
+  position: fixed;
+  z-index: 1001;
+  background: #000;
+  overflow: hidden;
+}
+
+/* Full screen on a television, where a smaller player is never painted. */
+.trailer-layer-full {
+  inset: 0;
+  width: auto;
+  height: auto;
+}
+
+.trailer-layer iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  display: block;
 }
 
 /* The trailer fills the hero band, taking the backdrop's place. Keeping it

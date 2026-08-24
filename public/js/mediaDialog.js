@@ -180,32 +180,101 @@ class MediaDialog {
     }
 
     playTrailer(videoId) {
-        if (!this.trailerEl) return;
+        if (!this.trailerEl || !this.heroEl) return;
 
-        // Muted, because a browser refuses to autoplay anything else, and
-        // because a trailer blaring out while you browse is not wanted.
-        // tabindex=-1 keeps the d-pad out of the iframe: the selection has
-        // to stay on the Play button in front of it.
+        // The iframe does not live in the dialog. An Android WebView paints
+        // a video surface only for an iframe sitting in a plain fixed layer
+        // near the root; nested inside the dialog's box and hero it stays
+        // black however the ancestors' clipping and animation are stripped.
+        // Established on the device: the same iframe, same page, renders as
+        // a child of body and does not render inside the hero.
+        //
+        // So it is put in a fixed layer of its own, parked exactly over the
+        // hero's rectangle and kept there. The dialog looks unchanged.
+        const layer = document.createElement('div');
+        layer.className = 'trailer-layer';
+
         const iframe = document.createElement('iframe');
         iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}`
             + '?autoplay=1&mute=1&controls=0&modestbranding=1&rel=0'
             + '&playsinline=1&iv_load_policy=3';
+        // Muted, because a browser refuses to autoplay anything else, and
+        // because a trailer blaring out while you browse is not wanted.
+        // tabindex=-1 keeps the d-pad out of the iframe: the selection has
+        // to stay on the Play button.
         iframe.allow = 'autoplay; encrypted-media';
         iframe.setAttribute('tabindex', '-1');
         iframe.setAttribute('title', 'Trailer');
         iframe.setAttribute('frameborder', '0');
+        layer.appendChild(iframe);
 
-        this.trailerEl.replaceChildren(iframe);
-        this.trailerEl.hidden = false;
+        document.body.appendChild(layer);
+        this.trailerLayer = layer;
+
+        // On the television the trailer takes the whole screen. Not a
+        // stylistic choice: this WebView hands a playing video to a
+        // hardware overlay, and it only paints that overlay when the player
+        // is full screen. The identical iframe, in the identical layer,
+        // renders at 960x540 and stays black at 368x207. Established by
+        // resizing it on the device and watching the picture appear.
+        if (document.documentElement.classList.contains('tv-mode')) {
+            layer.classList.add('trailer-layer-full');
+            // Any key brings the viewer back to the film rather than
+            // navigating a dialog they can no longer see.
+            this.dismissTrailer = (e) => {
+                if (e.altKey || e.ctrlKey || e.metaKey) return;
+                this.stopTrailer();
+                e.preventDefault();
+                e.stopPropagation();
+            };
+            // On window, so it runs before the d-pad's own capture listener
+            window.addEventListener('keydown', this.dismissTrailer, true);
+        } else {
+            this.positionTrailer();
+            // The box scrolls under it, so the layer has to follow the hero
+            this.trackTrailer = () => this.positionTrailer();
+            this.scroller = this.root.querySelector('.media-modal-box');
+            this.scroller?.addEventListener('scroll', this.trackTrailer, { passive: true });
+            window.addEventListener('resize', this.trackTrailer);
+        }
+
         this.root?.classList.add('trailer-playing');
+    }
+
+    /** Keep the layer exactly over the hero band. */
+    positionTrailer() {
+        if (!this.trailerLayer || !this.heroEl) return;
+        const r = this.heroEl.getBoundingClientRect();
+        // Scrolled out of sight: hide rather than float over the text
+        const visible = r.bottom > 0 && r.top < window.innerHeight && r.height > 0;
+        const s = this.trailerLayer.style;
+        s.display = visible ? 'block' : 'none';
+        s.left = r.left + 'px';
+        s.top = r.top + 'px';
+        s.width = r.width + 'px';
+        s.height = r.height + 'px';
     }
 
     stopTrailer() {
         clearTimeout(this.trailerTimer);
         this.trailerTimer = null;
+
+        this.scroller?.removeEventListener('scroll', this.trackTrailer);
+        window.removeEventListener('resize', this.trackTrailer);
+        this.scroller = null;
+        this.trackTrailer = null;
+
+        if (this.dismissTrailer) {
+            window.removeEventListener('keydown', this.dismissTrailer, true);
+            this.dismissTrailer = null;
+        }
+
+        // Removing the layer is what stops playback: an iframe merely
+        // hidden keeps its audio and its network stream running.
+        this.trailerLayer?.remove();
+        this.trailerLayer = null;
+
         if (this.trailerEl) {
-            // Emptying the host is what stops playback: a hidden iframe
-            // keeps its audio and its network stream running.
             this.trailerEl.replaceChildren();
             this.trailerEl.hidden = true;
         }
