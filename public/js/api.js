@@ -179,6 +179,12 @@ const API = {
         getDefaults: () => API.request('GET', '/settings/defaults')
     },
 
+    // Transcoding sessions
+    transcode: {
+        createSession: (body) => API.request('POST', '/transcode/session', body),
+        removeSession: (id) => API.request('DELETE', `/transcode/${id}`)
+    },
+
     // TMDB metadata. item() answers 404 for anything not enriched, which is
     // the normal case for most of the catalogue until a pass has run.
     tmdb: {

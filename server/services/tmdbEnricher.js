@@ -19,6 +19,7 @@ const xtreamApi = require('./xtreamApi');
 const cache = require('./cache');
 const tmdb = require('./tmdbApi');
 const { parseName, pickMatch } = require('./titleMatcher');
+const compatibility = require('./compatibility');
 
 // How long before an unmatched title is worth another look, and how many
 // times in total. A film released last week genuinely does turn up on TMDB
@@ -47,6 +48,11 @@ const PASS_BUDGET_MS = 15 * 60 * 1000;
 const MAX_CONSECUTIVE_ERRORS = 10;
 
 const KIND = { movie: 'movie', series: 'tv' };
+
+// Reported as the video codec when the file's first stream is an embedded
+// cover image. About 8% of this catalogue looks like this, and treating it
+// as the real picture would send plain h264 films down the re-encode path.
+const STILL_IMAGE_CODECS = ['mjpeg', 'png', 'gif', 'bmp', 'webp'];
 
 /**
  * The YouTube id out of whatever a provider chose to put in the field:
@@ -401,11 +407,19 @@ class TmdbEnricher {
 
         const rating = Number.parseFloat(i.rating);
 
+        // The real codecs of the file being served. A cover image embedded
+        // as the first stream is sometimes reported as the video codec --
+        // mjpeg, png -- so those are stored as they come and judged later
+        // rather than silently trusted.
+        const v = (i.video && typeof i.video === 'object') ? i.video : {};
+        const a = (i.audio && typeof i.audio === 'object') ? i.audio : {};
+
         getDb().prepare(`
             INSERT INTO item_details (
                 item_id, plot, cast_list, director, genres, runtime, year,
-                trailer, backdrop, rating, fetched_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                trailer, backdrop, rating,
+                video_codec, audio_codec, audio_channels, height, fetched_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(item_id) DO UPDATE SET
                 plot = excluded.plot,
                 cast_list = excluded.cast_list,
@@ -416,6 +430,10 @@ class TmdbEnricher {
                 trailer = excluded.trailer,
                 backdrop = excluded.backdrop,
                 rating = excluded.rating,
+                video_codec = excluded.video_codec,
+                audio_codec = excluded.audio_codec,
+                audio_channels = excluded.audio_channels,
+                height = excluded.height,
                 fetched_at = excluded.fetched_at
         `).run(
             item.id,
@@ -428,6 +446,10 @@ class TmdbEnricher {
             youtubeId(i.youtube_trailer),
             backdrop,
             Number.isFinite(rating) && rating > 0 ? rating : null,
+            v.codec_name || null,
+            a.codec_name || null,
+            Number(a.channels) || null,
+            Number(v.height) || null,
             Date.now()
         );
     }
@@ -573,6 +595,45 @@ class TmdbEnricher {
         return getDb()
             .prepare('SELECT * FROM item_details WHERE item_id = ?')
             .get(itemId) || null;
+    }
+
+    /**
+     * What playing this entry will take, worked out from the codecs the
+     * provider states rather than by probing the stream. Returns null when
+     * we cannot tell, in which case the player probes as it always did.
+     *
+     * A cover image embedded as the first stream is sometimes reported in
+     * place of the video codec, so a video codec that is really a still
+     * image is treated as not knowing rather than as a reason to re-encode
+     * a film that is probably plain h264.
+     */
+    getPlaybackForItem(itemId) {
+        const row = getDb().prepare(`
+            SELECT d.video_codec, d.audio_codec, d.audio_channels,
+                   p.container_extension
+            FROM item_details d JOIN playlist_items p ON p.id = d.item_id
+            WHERE d.item_id = ?
+        `).get(itemId);
+
+        if (!row?.video_codec || !row?.audio_codec) return null;
+        if (STILL_IMAGE_CODECS.includes(row.video_codec.toLowerCase())) return null;
+
+        const verdict = compatibility.decide({
+            video: row.video_codec,
+            audio: row.audio_codec,
+            container: row.container_extension
+        });
+
+        return {
+            video: row.video_codec,
+            audio: row.audio_codec,
+            audioChannels: row.audio_channels,
+            container: row.container_extension,
+            needsTranscode: verdict.needsTranscode,
+            needsRemux: verdict.needsRemux,
+            compatible: verdict.compatible,
+            videoMode: verdict.videoMode
+        };
     }
 }
 

@@ -39,6 +39,10 @@ router.get('/item/:itemId', (req, res) => {
         }
 
         res.json({
+            // What playing it will take, from the codecs the provider
+            // states. null when we cannot tell, and the player then probes
+            // the stream the way it always has.
+            playback: enricher.getPlaybackForItem(req.params.itemId),
             provider: detailRow ? {
                 plot: detailRow.plot,
                 cast: detailRow.cast_list,

@@ -217,6 +217,13 @@ function initSchema() {
             trailer TEXT,                  -- YouTube video id
             backdrop TEXT,                 -- 16:9 still, the provider's own
             rating REAL,
+            -- The provider states the real codecs of every file it serves.
+            -- Knowing them before playback starts is what lets the transcode
+            -- session be warmed up while the viewer reads the synopsis.
+            video_codec TEXT,
+            audio_codec TEXT,
+            audio_channels INTEGER,
+            height INTEGER,
             fetched_at INTEGER NOT NULL
         );
     `);
@@ -226,7 +233,11 @@ function initSchema() {
     for (const [table, column, type] of [['item_details', 'trailer', 'TEXT'],
                                         ['tmdb_titles', 'trailer', 'TEXT'],
                                         ['item_details', 'backdrop', 'TEXT'],
-                                        ['item_details', 'rating', 'REAL']]) {
+                                        ['item_details', 'rating', 'REAL'],
+                                        ['item_details', 'video_codec', 'TEXT'],
+                                        ['item_details', 'audio_codec', 'TEXT'],
+                                        ['item_details', 'audio_channels', 'INTEGER'],
+                                        ['item_details', 'height', 'INTEGER']]) {
         try {
             db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
             console.log(`[SQLite] Added ${column} column to ${table}`);

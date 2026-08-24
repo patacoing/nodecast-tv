@@ -447,6 +447,64 @@ class MoviesPage {
         this.renderMovieDetails(meta);
         this.showHero(movie, meta.backdrop, meta.poster);
         this.armTrailer(movie, meta.trailer);
+        this.warmUpPlayback(movie, stored?.playback);
+    }
+
+    /**
+     * Start the transcode session while the viewer reads the synopsis.
+     *
+     * 71% of this catalogue has a soundtrack the browser cannot decode, and
+     * for those films ffmpeg has to be running before a single frame
+     * arrives. That wait used to begin when Play was pressed; it can just
+     * as well begin when the dialog opens, since the codecs are already
+     * known from the provider and nothing has to be probed to find out.
+     *
+     * `playback` is null whenever we cannot tell, and then nothing is
+     * warmed and the player probes exactly as before.
+     */
+    async warmUpPlayback(movie, playback) {
+        if (!playback?.needsTranscode) return;
+
+        // Playing from this grid always starts at the beginning -- only the
+        // dashboard's Continue Watching passes a resume point -- so the
+        // session warmed here at offset zero is the one that gets joined.
+        try {
+            const container = movie.container_extension || 'mp4';
+            const result = await API.proxy.xtream.getStreamUrl(
+                movie.sourceId, movie.stream_id, 'movie', container);
+            if (!result?.url || this.currentMovie !== movie) return;
+
+            const session = await API.transcode.createSession({
+                url: result.url,
+                videoMode: playback.videoMode,
+                videoCodec: playback.video,
+                audioCodec: playback.audio,
+                audioChannels: playback.audioChannels
+            });
+
+            // Closed while it was starting: shut it down rather than leave
+            // ffmpeg running for a film nobody is watching.
+            if (this.currentMovie !== movie) {
+                this.dropWarmedSession(session?.sessionId);
+                return;
+            }
+            this.warmedSession = { id: session?.sessionId, url: result.url };
+        } catch (err) {
+            // Warming is an optimisation. Playback works without it.
+            console.warn('[Movies] Could not warm up playback:', err.message);
+        }
+    }
+
+    /**
+     * Stop a warmed session that was never used. Playing the film does not
+     * come through here: the session is reused by URL, so it has to stay.
+     */
+    dropWarmedSession(sessionId) {
+        const id = sessionId ?? this.warmedSession?.id;
+        this.warmedSession = null;
+        if (!id) return;
+        API.transcode.removeSession(id)
+            .catch(err => console.warn('[Movies] Could not drop session:', err.message));
     }
 
     clearHero() {
@@ -555,6 +613,7 @@ class MoviesPage {
         // The trailer goes at once rather than playing under the fade
         this.stopTrailer();
         this.clearHero();
+        this.dropWarmedSession();
         this.currentMovie = null;
 
         const panel = this.detailsPanel;
@@ -607,6 +666,10 @@ class MoviesPage {
     async playMovie(movie) {
         // Whatever happens next, the trailer must not keep playing under it
         this.stopTrailer();
+
+        // The warmed session is about to be joined by the player, which
+        // finds it by URL, so it must not be torn down on the way out.
+        this.warmedSession = null;
 
         try {
             // Get stream URL for movie using the actual container extension from API

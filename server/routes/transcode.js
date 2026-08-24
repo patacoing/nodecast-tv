@@ -40,7 +40,17 @@ router.post('/session', async (req, res) => {
     const userAgent = db.getUserAgent(settings);
 
     try {
-        const session = await transcodeSession.createSession(url, {
+        // Reuse a running session for the same file when no seek is asked
+        // for. This is what makes warming one up from the film dialog
+        // worth anything: pressing Play a moment later has to join the
+        // session already running, not start a second one beside it.
+        // A seek needs its own session, since the offset is baked into the
+        // ffmpeg command.
+        const create = (seekOffset > 0)
+            ? transcodeSession.createSession
+            : transcodeSession.getOrCreateSession;
+
+        const session = await create(url, {
             ffmpegPath,
             userAgent,
             seekOffset: seekOffset || 0,

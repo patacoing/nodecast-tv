@@ -21,9 +21,9 @@ const { spawn } = require('child_process');
 const probeCache = new Map();
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
-// Browser-compatible codecs
-const BROWSER_VIDEO_CODECS = ['h264', 'avc', 'avc1'];
-const BROWSER_AUDIO_CODECS = ['aac', 'mp3', 'opus', 'vorbis'];
+// The rule lives in one place: the same question is asked from the film
+// dialog, using the codecs the provider states, before anything is probed.
+const compatibility = require('../services/compatibility');
 
 /**
  * Probe stream with ffprobe
@@ -88,18 +88,8 @@ function analyzeProbeResult(probeResult, url) {
     const audioCodec = audioStream?.codec_name?.toLowerCase() || 'unknown';
     const container = format.format_name?.toLowerCase() || 'unknown';
 
-    // Check codec compatibility
-    const videoOk = BROWSER_VIDEO_CODECS.some(c => videoCodec.includes(c));
-    const audioOk = BROWSER_AUDIO_CODECS.some(c => audioCodec.includes(c));
-
-    // Browser-safe containers
-    // Note: We exclude 'webm' because ffprobe reports MKV as "matroska,webm", 
-    // and H.264/AAC in MKV/WebM is not universally supported. Best to remux to MP4.
-    const BROWSER_CONTAINERS = ['hls', 'mp4', 'mov'];
-    const containerOk = BROWSER_CONTAINERS.some(c => container.includes(c));
-
-    // Check if it's a raw TS stream (not HLS)
-    const isRawTs = (container.includes('mpegts') || url.endsWith('.ts')) && !url.includes('.m3u8');
+    const verdict = compatibility.decide(
+        { video: videoCodec, audio: audioCodec, container }, url);
 
     // Extract subtitle tracks
     const subtitles = streams
@@ -111,20 +101,6 @@ function analyzeProbeResult(probeResult, url) {
             codec: s.codec_name
         }));
 
-    // Determine what processing is needed
-    // 4. MKV files often cause OOM/decoding issues in browser fMP4 remux, 
-    // so we force them to "needsTranscode" which uses HLS (more robust).
-    // The frontend will still use "copy" mode if codecs are compatible.
-    const isMkv = container.includes('matroska') || container.includes('webm') || url.endsWith('.mkv');
-
-    // 1. Incompatible audio/video OR MKV -> Transcode (or HLS Copy)
-    const needsTranscode = !audioOk || !videoOk || isMkv;
-
-    // 2. Compatible audio/video but incompatible container (non-MKV) -> Remux (fMP4 pipe)
-    const needsRemux = !needsTranscode && (!containerOk || isRawTs);
-
-    const compatible = !needsTranscode && !needsRemux;
-
     const durationSec = parseFloat(format.duration);
 
     return {
@@ -134,9 +110,9 @@ function analyzeProbeResult(probeResult, url) {
         height: videoStream?.height || 0,
         audioChannels: audioStream?.channels || 0, // For Smart Audio Copy
         container: container,
-        compatible: compatible,
-        needsRemux: needsRemux,
-        needsTranscode: needsTranscode,
+        compatible: verdict.compatible,
+        needsRemux: verdict.needsRemux,
+        needsTranscode: verdict.needsTranscode,
         subtitles: subtitles,
         duration: isFinite(durationSec) && durationSec > 0 ? Math.round(durationSec) : null
     };

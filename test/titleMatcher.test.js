@@ -334,3 +334,58 @@ describe('pickTrailer', () => {
         assert.equal(pickTrailer(null), null);
     });
 });
+
+// ---------------------------------------------------------------
+// What a browser can play. The rule used to live inside the probe
+// route; it is shared now because the film dialog asks the same
+// question from the codecs the provider states, before probing.
+// ---------------------------------------------------------------
+const { decide } = require('../server/services/compatibility');
+
+describe('compatibility.decide', () => {
+    it('lets h264 + aac in mp4 through untouched', () => {
+        const v = decide({ video: 'h264', audio: 'aac', container: 'mp4' });
+        assert.equal(v.compatible, true);
+        assert.equal(v.needsTranscode, false);
+        assert.equal(v.needsRemux, false);
+    });
+
+    it('transcodes an ac3 soundtrack', () => {
+        // 71% of this catalogue, and the reason warming up pays off
+        const v = decide({ video: 'h264', audio: 'ac3', container: 'mp4' });
+        assert.equal(v.needsTranscode, true);
+    });
+
+    it('copies the picture when only the sound is the problem', () => {
+        // Re-encoding an h264 stream to fix its audio would cost enormously
+        // more for nothing
+        assert.equal(decide({ video: 'h264', audio: 'eac3' }).videoMode, 'copy');
+        assert.equal(decide({ video: 'hevc', audio: 'eac3' }).videoMode, 'encode');
+    });
+
+    it('sends mkv down the transcode path whatever is inside it', () => {
+        // The browser's fMP4 remux blows up on matroska
+        const v = decide({ video: 'h264', audio: 'aac', container: 'matroska,webm' });
+        assert.equal(v.needsTranscode, true);
+        assert.equal(v.videoMode, 'copy');
+    });
+
+    it('recognises mkv from the file name alone', () => {
+        assert.equal(decide({ video: 'h264', audio: 'aac' }, 'x.mkv').needsTranscode, true);
+    });
+
+    it('remuxes a compatible raw ts', () => {
+        const v = decide({ video: 'h264', audio: 'aac', container: 'mpegts' }, 'x.ts');
+        assert.equal(v.needsTranscode, false);
+        assert.equal(v.needsRemux, true);
+    });
+
+    it('leaves an hls playlist alone', () => {
+        const v = decide({ video: 'h264', audio: 'aac', container: 'hls' }, 'x.m3u8');
+        assert.equal(v.compatible, true);
+    });
+
+    it('treats an unknown codec as needing work', () => {
+        assert.equal(decide({ video: 'unknown', audio: 'unknown' }).needsTranscode, true);
+    });
+});
