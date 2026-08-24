@@ -743,3 +743,37 @@ describe('modal confinement', () => {
     press(w, 'ArrowUp');
     check('up reaches the close button', id(w), 'modal-close');
 });
+
+// ---------------------------------------------------------------
+// A closed dialog is still in the document -- that is what hiding it
+// means -- so its .dpad-trap is always there to be found. Matching one
+// that is not on screen confined the selection to an invisible box and
+// broke navigation on every page at once.
+// ---------------------------------------------------------------
+describe('a hidden trap confines nothing', () => {
+    const w = build(`
+      <div id="page-home" class="page active">
+        <a href="#" id="nav-movies" class="nav-link" data-rect="100,8,90,34"></a>
+        <div class="dashboard-card" id="card-a" data-rect="40,120,200,300"></div>
+        <div class="dashboard-card" id="card-b" data-rect="260,120,200,300"></div>
+        <div id="film-dialog" class="media-modal hidden">
+          <div class="media-modal-box dpad-trap" data-rect="300,200,700,500">
+            <button id="dialog-play" data-rect="330,600,120,48"></button>
+          </div>
+        </div>
+      </div>`);
+
+    w.document.getElementById('nav-movies').focus();
+
+    press(w, 'ArrowDown');
+    check('down from the navbar reaches the content', id(w), 'card-a');
+
+    press(w, 'ArrowRight');
+    check('and the row is walkable', id(w), 'card-b');
+
+    // and once it is actually open, it takes over again
+    w.document.getElementById('film-dialog').classList.remove('hidden');
+    w.document.getElementById('dialog-play').focus();
+    press(w, 'ArrowUp');
+    check('an open dialog still owns the selection', id(w), 'dialog-play');
+});

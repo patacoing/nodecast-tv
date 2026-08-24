@@ -114,15 +114,32 @@
         return getComputedStyle(el).visibility !== 'hidden';
     }
 
+    /**
+     * The overlay that currently owns the selection, if any.
+     *
+     * A closed dialog is still in the document -- that is the whole point
+     * of hiding it rather than building it on demand -- so its .dpad-trap
+     * is always there to be found. Matching one that is not on screen
+     * confines the selection to an invisible box and kills navigation
+     * everywhere, which is exactly what it did.
+     */
+    function activeTrap() {
+        for (const el of document.querySelectorAll('.dpad-trap')) {
+            if (el.closest('.hidden')) continue;
+            const r = el.getBoundingClientRect();
+            if (r.width > 0 && r.height > 0) return el;
+        }
+        return null;
+    }
+
     function candidates() {
-        // Anything covering the page -- a fullscreen player, an open modal --
-        // leaves what is behind it perfectly laid out and perfectly
+        // Anything covering the page -- a fullscreen player, an open dialog
+        // -- leaves what is behind it perfectly laid out and perfectly
         // focusable. Without confining the search the selection wanders off
         // onto the navbar or the grid underneath, where it is invisible and
-        // appears to do nothing at all. .dpad-trap marks an overlay that
-        // owns the selection while it is open.
+        // appears to do nothing at all.
         const root = document.querySelector('.css-fullscreen')
-            || document.querySelector('.dpad-trap')
+            || activeTrap()
             || document.fullscreenElement
             || document;
         return Array.from(root.querySelectorAll(FOCUSABLE_SELECTOR)).filter(isVisible);
