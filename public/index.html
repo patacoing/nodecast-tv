@@ -416,17 +416,25 @@
               <p>Loading series...</p>
             </div>
           </div>
-          <!-- Series details panel (seasons/episodes) -->
-          <div id="series-details" class="series-details hidden">
-            <button class="series-back-btn">← Back to Series</button>
-            <div class="series-details-header">
-              <img id="series-poster" src="" alt="" class="series-poster">
-              <div class="series-info">
-                <h3 id="series-title"></h3>
-                <p id="series-plot"></p>
+          <!-- Series details, same dialog as a film's -->
+          <div id="series-details" class="media-modal hidden">
+            <div class="media-modal-box dpad-trap">
+              <div class="media-hero">
+                <img id="series-backdrop" class="media-hero-img" src="" alt="">
+                <div class="media-trailer" id="series-trailer" hidden></div>
+                <div class="media-hero-fade"></div>
+                <h3 id="series-title" class="media-hero-title"></h3>
+              </div>
+              <div class="media-body">
+                <div class="media-actions">
+                  <button class="btn media-close-btn series-back-btn">Close</button>
+                </div>
+                <p class="media-meta" id="series-meta"></p>
+                <p class="media-plot" id="series-plot"></p>
+                <p class="media-credits" id="series-credits"></p>
+                <div id="series-seasons" class="series-seasons"></div>
               </div>
             </div>
-            <div id="series-seasons" class="series-seasons"></div>
           </div>
         </div>
       </div>
@@ -1141,7 +1149,8 @@
   <!-- JavaScript -->
   <script src="/js/icons.js"></script>
   <script src="/js/api.js?v=4"></script>
-  <script src="/js/metadata.js?v=3"></script>
+  <script src="/js/metadata.js?v=4"></script>
+  <script src="/js/mediaDialog.js?v=1"></script>
   <script src="/js/components/VideoPlayer.js?v=2"></script>
   <script src="/js/components/ChannelList.js?v=3"></script>
   <script src="/js/components/SourceManager.js?v=2"></script>
@@ -1149,8 +1158,8 @@
   <script src="/js/pages/HomePage.js?v=2"></script>
   <script src="/js/pages/LivePage.js?v=2"></script>
   <script src="/js/pages/Guide.js?v=2"></script>
-  <script src="/js/pages/MoviesPage.js?v=13"></script>
-  <script src="/js/pages/SeriesPage.js?v=3"></script>
+  <script src="/js/pages/MoviesPage.js?v=14"></script>
+  <script src="/js/pages/SeriesPage.js?v=4"></script>
   <script src="/js/pages/Settings.js?v=2"></script>
   <script src="/js/pages/WatchPage.js?v=1"></script>
   <script src="/js/app.js?v=5"></script>

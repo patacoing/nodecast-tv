@@ -3,9 +3,6 @@
  * Handles VOD movie browsing and playback
  */
 
-// How long the viewer has to settle on a film before its trailer starts.
-const TRAILER_DELAY_MS = 5000;
-
 class MoviesPage {
     constructor(app) {
         this.app = app;
@@ -33,6 +30,15 @@ class MoviesPage {
     init() {
         // Details panel, shown before playback rather than starting it
         this.detailsPanel = document.getElementById('movie-details');
+        this.dialog = new MediaDialog({
+            root: this.detailsPanel,
+            hero: document.getElementById('movie-backdrop'),
+            trailer: document.getElementById('movie-trailer'),
+            firstFocus: document.getElementById('movie-play-btn')
+        }, () => {
+            this.currentMovie = null;
+            this.dropWarmedSession();
+        });
         document.getElementById('movie-back-btn')
             ?.addEventListener('click', () => history.back());
 
@@ -406,15 +412,7 @@ class MoviesPage {
      */
     async showMovieDetails(movie) {
         this.currentMovie = movie;
-        this.stopTrailer();
-
-        // Where to put the selection back when the dialog closes. On a
-        // remote, losing your place in a grid of thousands is worse than
-        // anything the dialog itself can offer.
-        this.returnFocusTo = document.activeElement;
-
-        clearTimeout(this.closeTimer);
-        this.detailsPanel.classList.remove('closing', 'hidden');
+        this.dialog.open(movie.id);
 
         // Its own history entry, so Back closes the film rather than the page
         history.pushState({ page: 'movies', detail: movie.id }, '', '#movies');
@@ -435,9 +433,7 @@ class MoviesPage {
         // deliberately stays empty until we know which image to use --
         // showing the poster and swapping it for the backdrop a moment
         // later reads as the dialog loading twice.
-        this.clearHero();
         this.renderMovieDetails(Metadata.forDisplay(listing, null));
-        document.getElementById('movie-play-btn')?.focus();
 
         const stored = await Metadata.fetch(movie.id);
         // The user may have gone back, or moved on to another film already
@@ -445,8 +441,8 @@ class MoviesPage {
 
         const meta = Metadata.forDisplay(listing, stored);
         this.renderMovieDetails(meta);
-        this.showHero(movie, meta.backdrop, meta.poster);
-        this.armTrailer(movie, meta.trailer);
+        this.dialog.setHero(movie.id, meta.backdrop, meta.poster);
+        this.dialog.armTrailer(movie.id, meta.trailer);
         this.warmUpPlayback(movie, stored?.playback);
     }
 
@@ -507,93 +503,6 @@ class MoviesPage {
             .catch(err => console.warn('[Movies] Could not drop session:', err.message));
     }
 
-    clearHero() {
-        const hero = document.getElementById('movie-backdrop');
-        if (!hero) return;
-        hero.classList.remove('loaded', 'is-poster');
-        hero.removeAttribute('src');
-    }
-
-    /**
-     * Put the one image up, once it has actually downloaded. Setting src
-     * directly paints it in strips as it arrives over the network, which on
-     * a television is worse than a moment of empty band.
-     */
-    showHero(movie, backdrop, poster) {
-        const hero = document.getElementById('movie-backdrop');
-        // A 2:3 poster stretched across a 16:9 band shows a strip of chin,
-        // so it is fitted rather than cropped when it has to stand in.
-        const url = backdrop || poster;
-        if (!hero || !url) return;
-
-        const probe = new Image();
-        probe.onload = () => {
-            if (this.currentMovie !== movie) return;
-            hero.classList.toggle('is-poster', !backdrop);
-            hero.src = url;
-            hero.classList.add('loaded');
-        };
-        probe.onerror = () => {
-            // The provider's image host is not always up. Fall back to the
-            // poster if that is not what already failed.
-            if (this.currentMovie !== movie || !backdrop || !poster) return;
-            this.showHero(movie, null, poster);
-        };
-        probe.src = url;
-    }
-
-    /**
-     * Start the trailer once the viewer has settled on the film rather than
-     * immediately: opening a page should not fire sound and motion at
-     * someone still walking through the grid.
-     */
-    armTrailer(movie, videoId) {
-        this.stopTrailer();
-        if (!videoId) return;
-
-        this.trailerTimer = setTimeout(() => {
-            // Still the same film, and the panel still open
-            if (this.currentMovie !== movie) return;
-            if (this.detailsPanel?.classList.contains('hidden')) return;
-            this.playTrailer(videoId);
-        }, TRAILER_DELAY_MS);
-    }
-
-    playTrailer(videoId) {
-        const host = document.getElementById('movie-trailer');
-        if (!host) return;
-
-        // Muted, because a browser refuses to autoplay anything else, and
-        // because a trailer blaring out while you browse is not wanted.
-        // tabindex=-1 keeps the d-pad out of the iframe: the selection has
-        // to stay on the Play button behind it.
-        const iframe = document.createElement('iframe');
-        iframe.src = `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoId)}`
-            + '?autoplay=1&mute=1&controls=0&modestbranding=1&rel=0'
-            + '&playsinline=1&iv_load_policy=3';
-        iframe.allow = 'autoplay; encrypted-media';
-        iframe.setAttribute('tabindex', '-1');
-        iframe.setAttribute('title', 'Trailer');
-        iframe.setAttribute('frameborder', '0');
-
-        host.replaceChildren(iframe);
-        host.hidden = false;
-        this.detailsPanel?.classList.add('trailer-playing');
-    }
-
-    stopTrailer() {
-        clearTimeout(this.trailerTimer);
-        this.trailerTimer = null;
-        const host = document.getElementById('movie-trailer');
-        if (host) {
-            // Emptying the host is what stops playback: a hidden iframe
-            // keeps its audio and its network stream running.
-            host.replaceChildren();
-            host.hidden = true;
-        }
-        this.detailsPanel?.classList.remove('trailer-playing');
-    }
-
     renderMovieDetails(meta) {
         document.getElementById('movie-title').textContent = meta.title || '';
         document.getElementById('movie-meta').textContent = Metadata.summaryLine(meta);
@@ -610,66 +519,21 @@ class MoviesPage {
     }
 
     hideMovieDetails() {
-        // The trailer goes at once rather than playing under the fade
-        this.stopTrailer();
-        this.clearHero();
-        this.dropWarmedSession();
-        this.currentMovie = null;
-
-        const panel = this.detailsPanel;
-        if (!panel || panel.classList.contains('hidden')) {
-            this.finishHide();
-            return;
-        }
-
-        // Let it animate out, then actually hide it. Skipped entirely when
-        // the viewer asked for less motion, in which case no animationend
-        // is coming and waiting for one would leave the dialog on screen.
-        const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-        if (reduced) {
-            this.finishHide();
-            return;
-        }
-
-        panel.classList.add('closing');
-        const done = () => {
-            clearTimeout(this.closeTimer);
-            panel.removeEventListener('animationend', done);
-            this.finishHide();
-        };
-        panel.addEventListener('animationend', done);
-        // A safety net: an animation that never starts must not strand the
-        // dialog open with the grid unreachable behind it.
-        this.closeTimer = setTimeout(done, 400);
-    }
-
-    finishHide() {
-        clearTimeout(this.closeTimer);
-        this.detailsPanel?.classList.remove('closing');
-        this.detailsPanel?.classList.add('hidden');
-
-        // The card is only focusable again now that the dialog is gone
-        if (this.returnFocusTo?.isConnected) this.returnFocusTo.focus();
-        this.returnFocusTo = null;
+        // finish() also covers "was never open", so callers need not care
+        if (!this.dialog.close()) this.dialog.finish();
     }
 
     /** Called by the Back key before it leaves the page. */
     closeDetails() {
-        const panel = this.detailsPanel;
-        if (!panel || panel.classList.contains('hidden')) return false;
-        // Already on its way out: a second Back belongs to the page behind
-        if (panel.classList.contains('closing')) return false;
-        this.hideMovieDetails();
-        return true;
+        if (!this.dialog.isOpen() || this.dialog.isClosing()) return false;
+        return this.dialog.close();
     }
 
     async playMovie(movie) {
-        // Whatever happens next, the trailer must not keep playing under it
-        this.stopTrailer();
-
         // The warmed session is about to be joined by the player, which
         // finds it by URL, so it must not be torn down on the way out.
         this.warmedSession = null;
+        this.dialog.stopTrailer();
 
         try {
             // Get stream URL for movie using the actual container extension from API

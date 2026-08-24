@@ -99,6 +99,22 @@ const Metadata = {
         return merged;
     },
 
+    /**
+     * The YouTube id out of whatever the provider put in the field: a bare
+     * id, a watch URL, a short link, an embed. Anything unreadable is
+     * discarded rather than guessed at -- a wrong id plays a stranger's
+     * video over the film. This mirrors youtubeId() in tmdbEnricher, which
+     * does the same job for what the background pass stores.
+     */
+    youtubeId(raw) {
+        const value = String(raw ?? '').trim();
+        if (!value) return null;
+        if (/^[A-Za-z0-9_-]{11}$/.test(value)) return value;
+        const m = value.match(
+            /[?&]v=([A-Za-z0-9_-]{11})|youtu\.be\/([A-Za-z0-9_-]{11})|\/(?:embed|shorts)\/([A-Za-z0-9_-]{11})/);
+        return m ? (m[1] || m[2] || m[3]) : null;
+    },
+
     /** "2014 · 2 h 49 · Science-Fiction, Drame · ★ 8.4" */
     summaryLine(meta) {
         const bits = [];

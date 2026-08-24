@@ -55,6 +55,13 @@ class SeriesPage {
             history.back();
         });
 
+        this.dialog = new MediaDialog({
+            root: this.detailsPanel,
+            hero: document.getElementById('series-backdrop'),
+            trailer: document.getElementById('series-trailer'),
+            firstFocus: document.querySelector('.series-back-btn')
+        }, () => { this.currentSeries = null; });
+
         // Set up IntersectionObserver for lazy loading
         this.observer = new IntersectionObserver((entries) => {
             if (entries[0].isIntersecting && !this.isLoading) {
@@ -384,17 +391,19 @@ class SeriesPage {
     }
 
     renderSeriesHeader(meta) {
-        document.getElementById('series-poster').src = meta.poster || '/img/placeholder.png';
         document.getElementById('series-title').textContent = meta.title || '';
+        document.getElementById('series-meta').textContent = Metadata.summaryLine(meta);
         document.getElementById('series-plot').textContent = meta.plot || '';
+
+        const credits = [];
+        if (meta.director) credits.push(`Directed by ${meta.director}`);
+        if (meta.cast) credits.push(meta.cast);
+        document.getElementById('series-credits').textContent = credits.join(' \u2014 ');
     }
 
     async showSeriesDetails(series) {
         this.currentSeries = series;
-
-        // Show details panel
-        this.container.classList.add('hidden');
-        this.detailsPanel.classList.remove('hidden');
+        this.dialog.open(series.id);
 
         // Its own history entry, so Back closes the series rather than the page
         history.pushState({ page: 'series', detail: series.id }, '', '#series');
@@ -402,20 +411,34 @@ class SeriesPage {
         // Set header info. Xtream describes its series fairly well, so this
         // is almost always the provider's own text; TMDB only steps in for
         // the occasional entry that came through bare.
+        // A series listing is far richer than a film's: it carries the
+        // synopsis, the cast, a run time, several backdrops and a trailer.
+        // TMDB has almost nothing left to add.
         const listing = {
             title: series.name,
             poster: series.cover,
+            backdrop: Array.isArray(series.backdrop_path)
+                ? series.backdrop_path[0] : series.backdrop_path,
             plot: series.plot,
             year: series.year || series.releaseDate?.substring(0, 4),
             rating: series.rating,
-            genres: series.genre ? series.genre.split(/\s*[,\/]\s*/) : null
+            runtime: Number(series.episode_run_time) || null,
+            cast: series.cast,
+            director: series.director,
+            genres: series.genre ? series.genre.split(/\s*[,\/]\s*/) : null,
+            trailer: Metadata.youtubeId(series.youtube_trailer)
         };
-        this.renderSeriesHeader(Metadata.forDisplay(listing, null));
+        const shown = Metadata.forDisplay(listing, null);
+        this.renderSeriesHeader(shown);
+        this.dialog.setHero(series.id, shown.backdrop, shown.poster);
+        this.dialog.armTrailer(series.id, shown.trailer);
 
         Metadata.fetch(series.id).then(stored => {
-            if (stored && this.currentSeries === series) {
-                this.renderSeriesHeader(Metadata.forDisplay(listing, stored));
-            }
+            if (!stored || this.currentSeries !== series) return;
+            const meta = Metadata.forDisplay(listing, stored);
+            this.renderSeriesHeader(meta);
+            this.dialog.setHero(series.id, meta.backdrop, meta.poster);
+            this.dialog.armTrailer(series.id, meta.trailer);
         });
 
         // Show loading
@@ -477,16 +500,13 @@ class SeriesPage {
     }
 
     hideDetails() {
-        this.detailsPanel.classList.add('hidden');
-        this.container.classList.remove('hidden');
-        this.currentSeries = null;
+        if (!this.dialog.close()) this.dialog.finish();
     }
 
     /** Called by the Back key before it leaves the page. */
     closeDetails() {
-        if (this.detailsPanel?.classList.contains('hidden') !== false) return false;
-        this.hideDetails();
-        return true;
+        if (!this.dialog.isOpen() || this.dialog.isClosing()) return false;
+        return this.dialog.close();
     }
 
     async playEpisode(episodeEl) {

@@ -105,7 +105,7 @@ body {
   input,
   textarea,
   .modal-body,
-  .series-info,
+  .media-body,
   .movie-info,
   .epg-program-desc {
     -webkit-user-select: text;
@@ -2240,16 +2240,6 @@ kbd {
     margin: var(--space-md);
   }
 
-  /* Series Details */
-  .series-details-header {
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .series-details-header .series-poster {
-    width: 180px;
-    height: 270px;
-  }
 }
 
 @media (max-width: 640px) {
@@ -2605,29 +2595,6 @@ kbd {
     justify-content: space-between;
   }
 
-  /* Series Details */
-  .series-details {
-    padding: var(--space-sm);
-  }
-
-  .series-back-btn {
-    padding: var(--space-xs) var(--space-sm);
-    margin-bottom: var(--space-md);
-    font-size: 0.875rem;
-  }
-
-  .series-details-header .series-poster {
-    width: 160px;
-    height: 240px;
-  }
-
-  .series-info h3 {
-    font-size: 1.25rem;
-  }
-
-  .series-info p {
-    font-size: 0.875rem;
-  }
 
   .season-header {
     padding: var(--space-sm);
@@ -3168,76 +3135,22 @@ kbd {
 }
 
 /* Series Details Panel */
-.series-details {
-  position: absolute;
-  inset: 0;
-  background: var(--color-bg-primary);
-  -webkit-overflow-scrolling: touch;
-  overscroll-behavior: contain;
-  overflow-y: auto;
-  padding: var(--space-lg);
-}
-
-.series-details.hidden {
-  display: none;
-}
-
-.series-back-btn {
-  background: var(--color-bg-tertiary);
-  border: none;
-  color: var(--color-text-primary);
-  padding: var(--space-sm) var(--space-md);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-  margin-bottom: var(--space-lg);
-  transition: background var(--transition-fast);
-}
-
-.series-back-btn:hover {
-  background: var(--color-bg-hover);
-}
-
-.series-details-header {
-  display: flex;
-  gap: var(--space-lg);
-  margin-bottom: var(--space-xl);
-}
-
-.series-details-header .series-poster {
-  flex-shrink: 0;
-  width: 200px;
-  height: 300px;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-}
-
-.series-details-header .series-poster img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
-.series-info h3 {
-  font-size: 1.5rem;
-  margin: 0 0 var(--space-md) 0;
-}
-
-.series-info p {
-  color: var(--color-text-secondary);
-  line-height: 1.6;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-/* Seasons and Episodes */
+/* Seasons and episodes, inside the dialog's body. Its own scroller so a
+   long-running show does not push the synopsis off the top of the box. */
 .series-seasons {
   display: flex;
   flex-direction: column;
   gap: var(--space-md);
+  max-height: 34vh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-top: var(--space-md);
 }
 
 .season-group {
-  background: var(--color-bg-secondary);
+  /* The dialog's own background is bg-secondary, so a season card in the
+     same colour would have no edges at all. */
+  background: var(--color-bg-tertiary);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
