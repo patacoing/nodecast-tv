@@ -12,9 +12,9 @@
  */
 
 // Items shown per row. The row scrolls horizontally, and nobody walks past
-// twenty with a d-pad before losing patience; the category page is there
-// for the ones who want the rest.
-const ROW_LIMIT = 20;
+// a dozen with a d-pad before losing patience. It is also a memory budget:
+// each poster is a decoded bitmap, and they add up fast.
+const ROW_LIMIT = 12;
 
 // Rows built before the scroll sentinel takes over.
 const FIRST_ROWS = 3;
@@ -33,6 +33,43 @@ class CategoryRows {
         this.observer = new IntersectionObserver((entries) => {
             if (entries[0].isIntersecting) this.buildNext();
         }, { rootMargin: '300px' });
+    }
+
+    /**
+     * Empty the rows that are far off screen and refill them when they come
+     * back. Without this, browsing a catalogue of this size just keeps
+     * allocating: measured on the device after eight scrolls, twelve rows
+     * held 169 decoded posters and 114MB of bitmap, none of it ever
+     * released. A Fire TV Stick does not have that to spare, and what it
+     * does instead is draw frames in pieces.
+     *
+     * The section keeps the height it had, so nothing jumps.
+     */
+    recycle() {
+        const keep = window.innerHeight * 2;
+        for (const section of this.container.querySelectorAll('.cat-row')) {
+            const box = section.getBoundingClientRect();
+            const far = box.bottom < -keep || box.top > window.innerHeight + keep;
+            const scroller = section.querySelector('.horizontal-scroll');
+            if (!scroller) continue;
+
+            if (far && scroller.children.length) {
+                // Never empty the row the selection is standing in
+                if (section.contains(document.activeElement)) continue;
+                section.style.minHeight = box.height + 'px';
+                scroller.replaceChildren();
+                scroller.dataset.emptied = '1';
+            } else if (!far && scroller.dataset.emptied) {
+                const group = this.groups[Number(section.dataset.index)];
+                if (!group) continue;
+                for (const item of group.items.slice(0, ROW_LIMIT)) {
+                    const card = this.makeCard(item);
+                    if (card) scroller.appendChild(card);
+                }
+                delete scroller.dataset.emptied;
+                section.style.minHeight = '';
+            }
+        }
     }
 
     /** @param {Array} groups  [{ title, items }] */
@@ -56,6 +93,13 @@ class CategoryRows {
 
         for (let i = 0; i < FIRST_ROWS; i++) this.buildNext();
         this.observer.observe(this.sentinel);
+
+        this.onScroll = this.onScroll || (() => {
+            clearTimeout(this.recycleTimer);
+            this.recycleTimer = setTimeout(() => this.recycle(), 200);
+        });
+        this.container.removeEventListener('scroll', this.onScroll);
+        this.container.addEventListener('scroll', this.onScroll, { passive: true });
     }
 
     buildNext() {
@@ -69,6 +113,7 @@ class CategoryRows {
 
         const section = document.createElement('section');
         section.className = 'cat-row';
+        section.dataset.index = String(this.built - 1);
 
         const heading = document.createElement('h3');
         heading.className = 'cat-row-title';
@@ -88,6 +133,8 @@ class CategoryRows {
 
     destroy() {
         this.observer.disconnect();
+        clearTimeout(this.recycleTimer);
+        this.container.removeEventListener('scroll', this.onScroll);
     }
 }
 
