@@ -246,16 +246,25 @@ class EpgGuide {
             throw new Error('Failed to load EPG data from any source');
         }
 
-        // Build secondary indexes for faster lookup
-        this.channelMap = new Map();
-        // Index by ID
-        this.channels.forEach(ch => {
-            this.channelMap.set(ch.id, ch);
-            // Also index by name (normalized) for fallback matching
-            if (ch.name) {
-                this.channelMap.set(ch.name.toLowerCase(), ch);
-            }
-        });
+        // Two indexes, kept apart. The id is what a provider states when it
+        // states anything -- 5% of the channels in this catalogue do -- and
+        // the name is what everything else has to be matched on, which
+        // takes real normalisation: "FR || TF1 [SD]" and "TF1" are the same
+        // channel and share not one character of spelling.
+        this.channelById = new Map(this.channels.map(ch => [ch.id, ch]));
+
+        // When two sources describe the same channel -- the provider's own
+        // EPG and an external XMLTV both carry TF1 -- the one that actually
+        // has a schedule is the one worth keeping.
+        const counts = new Map();
+        for (const p of this.programmes) {
+            counts.set(p.channelId, (counts.get(p.channelId) || 0) + 1);
+        }
+        this.channelByName = ChannelMatcher.indexByName(
+            this.channels, ch => counts.get(ch.id) || 0);
+
+        // Kept for anything still reaching for it
+        this.channelMap = this.channelById;
 
         // Load favorites
         const favs = await API.favorites.getAll();
@@ -271,18 +280,8 @@ class EpgGuide {
     getCurrentProgram(tvgId, channelName) {
         if (!this.programmes || this.programmes.length === 0) return null;
 
-        // Find EPG channel using fast map lookup
-        let epgChannel = null;
-        if (tvgId && this.channelMap && this.channelMap.has(tvgId)) {
-            epgChannel = this.channelMap.get(tvgId);
-        } else if (channelName && this.channelMap) {
-            epgChannel = this.channelMap.get(channelName.toLowerCase());
-        } else {
-            // Fallback to slow search if map fails or not built yet
-            epgChannel = this.channels.find(epg =>
-                (tvgId && epg.id === tvgId) || epg.name === channelName
-            );
-        }
+        const epgChannel = ChannelMatcher.matchChannel(
+            { tvgId, name: channelName }, this.channelById, this.channelByName);
 
         if (!epgChannel) return null;
 
@@ -378,13 +377,11 @@ class EpgGuide {
         }
 
         // Match ALL playable channels with optional EPG data
-        const allChannels = playableChannels.map(sourceChannel => {
-            // Try to find matching EPG channel by tvgId or name
-            const epgChannel = this.channels.find(epg =>
-                epg.id === sourceChannel.tvgId || epg.name === sourceChannel.name
-            );
-            return { epgChannel, sourceChannel };
-        });
+        const allChannels = playableChannels.map(sourceChannel => ({
+            epgChannel: ChannelMatcher.matchChannel(
+                sourceChannel, this.channelById, this.channelByName),
+            sourceChannel
+        }));
 
         // Collect unique groups from ALL playable channels
         const groups = [...new Set(allChannels.map(m => m.sourceChannel.groupTitle || 'Uncategorized'))].sort();
