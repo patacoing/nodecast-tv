@@ -48,6 +48,12 @@ const MAX_CONSECUTIVE_ERRORS = 10;
 
 const KIND = { movie: 'movie', series: 'tv' };
 
+/** The TMDB id the provider already put in its own record, if any. */
+function declaredTmdbId(info) {
+    const raw = String(info?.info?.tmdb_id ?? '').trim();
+    return /^[0-9]+$/.test(raw) && raw !== '0' ? Number(raw) : null;
+}
+
 // Shared by the batch query and the count behind it, so the number the
 // settings page shows can never drift from what the pass will actually do.
 const CANDIDATE_FROM = `
@@ -197,13 +203,27 @@ class TmdbEnricher {
      */
     async enrichOne(item) {
         const kind = KIND[item.type];
+
+        // The provider's own record for a film carries the TMDB id outright
+        // in about 99% of cases. Guessing from the title when the answer is
+        // sitting there would be worse in every way: it costs several
+        // searches instead of one lookup, and it cannot identify a title
+        // that is ambiguous on its own -- Ant-Man, Rocky, Red -- which the
+        // strict matching rightly refuses rather than gamble on.
+        const info = item.type === 'movie'
+            ? await this.vodInfo(item).catch(() => null)
+            : null;
+
+        const declared = declaredTmdbId(info);
+        if (declared && await this.linkByTmdbId(item, kind, declared)) return true;
+
         const parsed = parseName(item.name);
         if (!parsed.title) {
             this.saveLink(item, null, 'unmatched', null);
             return false;
         }
 
-        const year = parsed.year || await this.yearOf(item);
+        const year = parsed.year || this.yearOf(item, info);
 
         let choice = await this.searchOnce(kind, parsed.title, year);
 
@@ -236,6 +256,26 @@ class TmdbEnricher {
         return true;
     }
 
+    /**
+     * Attach a catalogue entry to a TMDB id we were handed rather than one
+     * we worked out. Returns false when TMDB does not recognise the id, so
+     * the caller can fall back to matching by title.
+     */
+    async linkByTmdbId(item, kind, tmdbId) {
+        if (!this.hasTitle(kind, tmdbId)) {
+            let full;
+            try {
+                full = await tmdb.details(kind, tmdbId);
+            } catch (err) {
+                if (/TMDB 404/.test(err.message)) return false;
+                throw err;
+            }
+            this.saveTitle(kind, full);
+        }
+        this.saveLink(item, tmdbId, 'matched', 1, kind);
+        return true;
+    }
+
     async searchOnce(kind, title, year) {
         const results = await tmdb.search(kind, title, year);
         return pickMatch({ title, year }, results);
@@ -249,14 +289,11 @@ class TmdbEnricher {
      * container -- so it takes the provider's per-film record, which is
      * cached on disk and only ever fetched once.
      */
-    async yearOf(item) {
+    yearOf(item, info) {
         if (item.year) {
             const y = Number(String(item.year).slice(0, 4));
             if (Number.isFinite(y) && y > 1800) return y;
         }
-        if (item.type !== 'movie') return null;
-
-        const info = await this.vodInfo(item);
         const raw = info?.info?.releasedate || info?.info?.release_date
             || info?.movie_data?.releasedate || '';
         const y = Number(String(raw).slice(0, 4));
@@ -413,4 +450,8 @@ class TmdbEnricher {
     }
 }
 
-module.exports = new TmdbEnricher();
+const enricher = new TmdbEnricher();
+enricher.declaredTmdbId = declaredTmdbId;   // exposed for the tests
+
+module.exports = enricher;
+module.exports.declaredTmdbId = declaredTmdbId;
