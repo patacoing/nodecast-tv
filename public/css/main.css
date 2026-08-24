@@ -2198,13 +2198,6 @@ kbd {
     width: 140px;
   }
 
-  .movie-poster,
-  .series-poster,
-  .series-card .series-poster {
-    width: 140px;
-    height: 210px;
-  }
-
   /* Settings */
   .settings-container {
     padding: var(--space-md);
@@ -2938,9 +2931,11 @@ kbd {
 
 .movie-poster {
   position: relative;
-  width: 160px;
-  height: 240px;
-  /* 2:3 ratio (160 * 1.5 = 240) */
+  /* Follows the card rather than fixing its own 160x240. A card that is
+     any narrower -- which is what a television layout does to it -- kept a
+     160px poster inside it and simply clipped the sides off. */
+  width: 100%;
+  aspect-ratio: 2 / 3;
   background: var(--color-bg-primary);
   overflow: hidden;
 }
@@ -3079,8 +3074,8 @@ kbd {
 .series-poster,
 .series-card .series-poster {
   position: relative;
-  width: 160px;
-  height: 240px;
+  width: 100%;
+  aspect-ratio: 2 / 3;
   background: var(--color-bg-primary);
   overflow: hidden;
 }
