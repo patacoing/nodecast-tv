@@ -190,6 +190,7 @@ app.use('/api/settings', require('./routes/settings'));
 app.use('/api/history', require('./routes/history'));
 app.use('/api/tmdb', require('./routes/tmdb'));
 app.use('/api/search', require('./routes/search'));
+app.use('/api/downloads', require('./routes/downloads'));
 
 // Version endpoint
 app.get('/api/version', (req, res) => {
@@ -210,6 +211,16 @@ app.use((err, req, res, next) => {
 
 app.listen(PORT, async () => {
     console.log(`NodeCast TV server running on http://localhost:${PORT}`);
+
+    // Before anything slow. A download that was running when the server
+    // stopped left a partial file that would otherwise pass for a finished
+    // one -- and if this waits behind the catalogue sync, which takes
+    // minutes, it marks as interrupted a job that started in the meantime.
+    try {
+        require('./services/downloadManager').recoverInterrupted();
+    } catch (err) {
+        console.warn('Download recovery failed:', err.message);
+    }
 
     // Load plugins
     await loadPlugins().catch(err => {

@@ -183,6 +183,13 @@ const API = {
     search: (q, limit) => API.request('GET',
         `/search?q=${encodeURIComponent(q)}${limit ? `&limit=${limit}` : ''}`),
 
+    // Films prepared for offline viewing
+    downloads: {
+        list: () => API.request('GET', '/downloads'),
+        request: (itemId) => API.request('POST', `/downloads/${encodeURIComponent(itemId)}`),
+        remove: (itemId) => API.request('DELETE', `/downloads/${encodeURIComponent(itemId)}`)
+    },
+
     // Transcoding sessions
     transcode: {
         createSession: (body) => API.request('POST', '/transcode/session', body),

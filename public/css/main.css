@@ -5739,3 +5739,100 @@ html.tv-mode {
 .series-grid.showing-rows {
   display: block;
 }
+
+/* =====================================================
+   Downloads: films prepared for a journey.
+
+   Absent on a television. You do not download to a set-top box wired to a
+   wall, and a seventh entry would push the navbar onto a second line --
+   which is what used to shove the player's controls off the screen.
+   ===================================================== */
+
+.tv-mode .nav-downloads,
+.tv-mode #movie-dl-btn {
+  display: none;
+}
+
+.downloads-container {
+  padding: var(--space-lg);
+  max-width: 900px;
+  margin: 0 auto;
+  height: 100%;
+  overflow-y: auto;
+}
+
+.downloads-hint {
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-lg);
+}
+
+.downloads-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-md);
+}
+
+.download-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-lg);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.download-row.status-failed {
+  border-color: rgba(239, 68, 68, 0.4);
+}
+
+.download-info {
+  min-width: 0;
+  flex: 1;
+}
+
+.download-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.download-state {
+  color: var(--color-text-secondary);
+  font-size: 0.875rem;
+  margin-top: var(--space-xs);
+}
+
+.status-failed .download-state {
+  color: var(--color-error);
+}
+
+.download-bar {
+  height: 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-tertiary);
+  margin-top: var(--space-sm);
+  overflow: hidden;
+}
+
+.download-bar span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  transition: width var(--transition-normal) ease;
+}
+
+.download-actions {
+  display: flex;
+  gap: var(--space-sm);
+  flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+  .download-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+}

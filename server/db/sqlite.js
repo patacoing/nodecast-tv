@@ -228,6 +228,27 @@ function initSchema() {
         );
     `);
 
+    // Films prepared for offline viewing. One row per catalogue entry, and
+    // the row is what makes the work resumable: a preparation interrupted
+    // by a restart leaves a half-written file that would otherwise pass for
+    // a finished one.
+    db.exec(`
+        CREATE TABLE IF NOT EXISTS downloads (
+            item_id TEXT PRIMARY KEY,      -- playlist_items.id
+            name TEXT,                     -- kept so the list reads even if
+                                           -- the provider drops the entry
+            status TEXT NOT NULL,          -- queued | running | ready | failed
+            path TEXT,
+            size INTEGER,
+            duration INTEGER,              -- seconds, for the progress figure
+            progress REAL DEFAULT 0,       -- 0..1, best effort
+            error TEXT,
+            requested_at INTEGER NOT NULL,
+            ready_at INTEGER
+        );
+        CREATE INDEX IF NOT EXISTS idx_downloads_status ON downloads(status);
+    `);
+
     // Migration: trailers, backdrops and precise ratings arrived after the
     // metadata tables did
     for (const [table, column, type] of [['item_details', 'trailer', 'TEXT'],

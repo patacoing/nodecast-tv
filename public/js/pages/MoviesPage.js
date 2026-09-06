@@ -46,6 +46,9 @@ class MoviesPage {
         // The card's own favourite and watchlist buttons are unreachable
         // with a remote -- they sit on top of the card and the d-pad treats
         // a card as one stop -- so the dialog carries them instead.
+        this.dlBtn = document.getElementById('movie-dl-btn');
+        this.dlBtn?.addEventListener('click', () => this.requestDownload());
+
         this.favBtn = document.getElementById('movie-fav-btn');
         this.wlBtn = document.getElementById('movie-wl-btn');
         this.favBtn?.addEventListener('click', () => {
@@ -705,6 +708,35 @@ class MoviesPage {
             console.error('Error playing movie:', err);
         }
     }
+    /**
+     * Ask the server to prepare this film for offline viewing. The refusals
+     * are the interesting part: the quota is deliberately not enforced by
+     * eviction, so a full quota comes back as an answer naming what is
+     * already held rather than quietly deleting one.
+     */
+    async requestDownload() {
+        const movie = this.currentMovie;
+        if (!movie || !this.dlBtn) return;
+
+        const label = this.dlBtn.querySelector('.dl-label');
+        const say = text => { if (label) label.textContent = text; };
+
+        this.dlBtn.disabled = true;
+        try {
+            const res = await API.downloads.request(movie.id);
+            say(res.already === 'ready' ? 'Already downloaded' : 'Preparing…');
+        } catch (err) {
+            // The server phrases its own refusals -- a full quota, a full
+            // disk -- and they arrive here as the thrown message.
+            say(err.message || 'Could not start');
+        } finally {
+            setTimeout(() => {
+                this.dlBtn.disabled = false;
+                say('Download');
+            }, 4000);
+        }
+    }
+
     /** Reflect what this film's state already is on the dialog's buttons. */
     syncToggleButtons(movie) {
         const key = `${movie.sourceId}:${movie.stream_id}`;
