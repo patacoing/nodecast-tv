@@ -4,7 +4,15 @@ services:
       context: .
     container_name: nodecast-tv
     ports:
-      - "80:3000"
+      # Published on the Tailscale interface only. On 0.0.0.0 the whole
+      # application answered on the server's public address, which is not
+      # what a private catalogue should do -- and it is the same address a
+      # forged token would be presented to.
+      #
+      # If the machine reboots and Docker starts before tailscaled, the
+      # container cannot bind and will fail; restart: unless-stopped brings
+      # it back once the interface is up.
+      - "100.81.187.102:80:3000"
     volumes:
       - ./data:/app/data
     restart: unless-stopped
