@@ -259,6 +259,20 @@ async function prepare(row) {
         return;
     }
 
+    // ffmpeg exits 0 on a source that simply stopped, and the container it
+    // writes still claims the input's full duration -- so a file with 53
+    // seconds in it announced 1h53 and was offered as ready. Ask what is
+    // actually in the file, not what it says about itself.
+    if (row.duration) {
+        const actual = await contentSeconds(out);
+        if (actual !== null && actual < row.duration * 0.95) {
+            try { fs.unlinkSync(out); } catch { /* nothing to remove */ }
+            const got = Math.round(actual / 60), want = Math.round(row.duration / 60);
+            throw new Error(
+                `the provider stopped sending after ${got} min of ${want}`);
+        }
+    }
+
     const size = fs.statSync(out).size;
     getDb().prepare(`UPDATE downloads SET status='ready', size=?, progress=1,
         ready_at=? WHERE item_id = ?`).run(size, Date.now(), row.item_id);
@@ -273,6 +287,18 @@ function runFfmpeg(url, out, userAgent, audioOk, row) {
             // Without a browser's user agent this provider closes the
             // connection after ten megabytes of a three gigabyte file.
             '-user_agent', userAgent,
+            // And even with it, it drops the connection partway through --
+            // Le Labyrinthe stopped at 53 seconds of 1h53 and ffmpeg
+            // reported success, because a source that ends is not an error
+            // to it. The playback path has carried these flags all along;
+            // the download path was written without them.
+            '-reconnect', '1',
+            '-reconnect_streamed', '1',
+            '-reconnect_on_network_error', '1',
+            '-reconnect_delay_max', '10',
+            '-fflags', '+genpts+discardcorrupt',
+            '-err_detect', 'ignore_err',
+            '-probesize', '5000000', '-analyzeduration', '5000000',
             '-i', url,
             '-map', '0:v:0', '-map', '0:a:0?',
             '-c:v', 'copy',
@@ -303,6 +329,28 @@ function runFfmpeg(url, out, userAgent, audioOk, row) {
         proc.on('close', code => code === 0
             ? resolve()
             : reject(new Error(stderr.trim().split('\n').pop() || `ffmpeg exited ${code}`)));
+    });
+}
+
+/**
+ * How much film is really in the file. The container's own duration is
+ * copied from the input and lies about a truncated result; the video
+ * stream's duration is written from the samples actually stored.
+ */
+function contentSeconds(file) {
+    return new Promise(resolve => {
+        const proc = spawn(process.env.FFPROBE_PATH || 'ffprobe', [
+            '-v', 'error', '-select_streams', 'v:0',
+            '-show_entries', 'stream=duration',
+            '-of', 'default=nw=1:nk=1', file
+        ]);
+        let out = '';
+        proc.stdout.on('data', d => { out += d; });
+        proc.on('error', () => resolve(null));
+        proc.on('close', () => {
+            const n = Number.parseFloat(out.trim());
+            resolve(Number.isFinite(n) && n > 0 ? n : null);
+        });
     });
 }
 
