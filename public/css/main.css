@@ -3242,6 +3242,17 @@ kbd {
   opacity: 1;
 }
 
+/* No pointer to hover with, and this is the case the whole feature exists
+   for -- a phone or a tablet being loaded before a flight. Tapping the row
+   starts playback, so a button that only appears on hover is a button that
+   never appears here. */
+@media (hover: none) {
+  .episode-download {
+    opacity: 1;
+    color: var(--color-accent);
+  }
+}
+
 .episode-download:hover:not(:disabled) {
   background: var(--color-bg-hover);
   color: var(--color-text);
