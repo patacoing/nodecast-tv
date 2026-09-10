@@ -6,6 +6,29 @@ const { requireAuth } = require('../auth');
 const manager = require('../services/downloadManager');
 
 /**
+ * The name the file arrives under on the phone, rather than the composite
+ * id it is stored as.
+ *
+ * \w is ASCII-only in JavaScript, so the obvious sanitiser quietly deletes
+ * every accent -- "Le bon côté de l'enfer" came out as "Le bon ct de
+ * lenfer", which is most of this catalogue. Letters and digits of any
+ * script are kept; what goes is what could break out of the header or the
+ * path: quotes, backslashes, separators, control characters.
+ *
+ * A quoted filename may only hold ASCII, so the accented form travels in
+ * the RFC 5987 parameter and a folded one stays behind for whatever does
+ * not read it.
+ */
+function disposition(rawName) {
+    const name = String(rawName || 'film')
+        .replace(/[^\p{L}\p{N} \-._'()\[\]]/gu, '').trim() || 'film';
+    const ascii = name.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^\x20-\x7e]/g, '').replace(/["\\]/g, '').trim() || 'film';
+    return `attachment; filename="${ascii}.mp4"; `
+        + `filename*=UTF-8''${encodeURIComponent(name + '.mp4')}`;
+}
+
+/**
  * GET /api/downloads/:itemId/file?e=&s=
  *
  * Deliberately before requireAuth: a phone's download manager does not send
@@ -22,10 +45,7 @@ router.get('/:itemId/file', (req, res) => {
         return res.status(404).send('Not ready');
     }
 
-    // A name the phone can file away, rather than the composite id
-    const safe = String(row.name || 'film').replace(/[^\w \-.]/g, '').trim() || 'film';
-    res.setHeader('Content-Disposition',
-        `attachment; filename="${safe}.mp4"`);
+    res.setHeader('Content-Disposition', disposition(row.name));
     res.setHeader('Content-Type', 'video/mp4');
     // sendFile answers range requests, which is what makes a transfer
     // resumable after the hotel wifi drops it
@@ -108,3 +128,4 @@ router.delete('/:itemId', (req, res) => {
 });
 
 module.exports = router;
+module.exports.disposition = disposition;

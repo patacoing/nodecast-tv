@@ -187,3 +187,42 @@ describe('requesting an episode', () => {
         assert.equal(res.reason, 'unknown');
     });
 });
+
+/**
+ * The name the file arrives under. \w is ASCII-only in JavaScript, so the
+ * obvious sanitiser quietly deletes every accent in a French catalogue --
+ * "Le bon côté de l'enfer" came out as "Le bon ct de lenfer".
+ */
+describe('the filename offered to the phone', () => {
+    const { disposition } = require('../server/routes/downloads');
+
+    it('keeps accents, in the parameter that can carry them', () => {
+        const d = disposition("Severance S01E01 Le bon côté de l'enfer");
+        assert.match(d, /filename\*=UTF-8''Severance%20S01E01%20Le%20bon%20c%C3%B4t%C3%A9/);
+    });
+
+    it('leaves a folded ASCII name behind for whatever cannot read that', () => {
+        assert.match(disposition("Le bon côté de l'enfer"),
+            /filename="Le bon cote de l'enfer\.mp4"/);
+    });
+
+    it('drops what could break out of the header or the path', () => {
+        const d = disposition('a/b\\c"d\re\nf');
+        assert.match(d, /filename="abcdef\.mp4"/);
+        assert.equal(d.includes('\r'), false);
+        assert.equal(d.includes('\n'), false);
+    });
+
+    it('does not let a name climb out of the downloads folder', () => {
+        assert.match(disposition('../../etc/passwd'), /filename="\.\.\.\.etcpasswd\.mp4"/);
+    });
+
+    it('never yields an empty name', () => {
+        assert.match(disposition('///'), /filename="film\.mp4"/);
+        assert.match(disposition(''), /filename="film\.mp4"/);
+        // Nothing survives the ASCII fold here, but the UTF-8 name does
+        const d = disposition('日本');
+        assert.match(d, /filename="film\.mp4"/);
+        assert.match(d, /filename\*=UTF-8''%E6%97%A5%E6%9C%AC/);
+    });
+});
