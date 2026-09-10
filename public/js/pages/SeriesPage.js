@@ -570,6 +570,8 @@ class SeriesPage {
                                 <span class="episode-number">E${ep.episode_num}</span>
                                 <span class="episode-title">${ep.title || `Episode ${ep.episode_num}`}</span>
                                 <span class="episode-duration">${ep.duration || ''}</span>
+                                <button class="episode-download" type="button"
+                                        title="Keep this episode offline">${Icons.download}</button>
                             </div>
                         `).join('')}
                     </div>
@@ -589,9 +591,49 @@ class SeriesPage {
                 ep.addEventListener('click', () => this.playEpisode(ep));
             });
 
+            this.seasonsContainer.querySelectorAll('.episode-download').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    // The row behind it starts playback; this button does not
+                    e.stopPropagation();
+                    this.requestEpisodeDownload(series.id, btn);
+                });
+            });
+
         } catch (err) {
             console.error('Error loading series info:', err);
             this.seasonsContainer.innerHTML = '<p class="hint" style="color: var(--color-error);">Error loading episodes</p>';
+        }
+    }
+
+    /**
+     * Keep one episode for a journey. The button says what happened in
+     * place rather than through an alert: a season is a long list, and a
+     * message box loses which row it was about.
+     */
+    async requestEpisodeDownload(seriesItemId, btn) {
+        const episodeId = btn.closest('.episode-item')?.dataset.episodeId;
+        if (!episodeId || btn.disabled) return;
+
+        btn.disabled = true;
+        const restore = (text, ok) => {
+            btn.classList.toggle('failed', !ok);
+            btn.title = text;
+            btn.dataset.say = text;
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.classList.remove('failed');
+                delete btn.dataset.say;
+                btn.title = 'Keep this episode offline';
+            }, 5000);
+        };
+
+        try {
+            const res = await API.downloads.requestEpisode(seriesItemId, episodeId);
+            restore(res.already === 'ready' ? 'Already downloaded' : 'Preparing…', true);
+        } catch (err) {
+            // The server phrases its own refusals -- what the budget has
+            // left, a full disk -- and they arrive here as the message.
+            restore(err.message || 'Could not start', false);
         }
     }
 

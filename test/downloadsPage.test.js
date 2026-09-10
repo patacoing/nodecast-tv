@@ -35,19 +35,32 @@ const running = { item_id: '10:2', name: 'Speed Demon', status: 'running', progr
 const failed = { item_id: '10:3', name: 'Anora', status: 'failed', error: 'ffmpeg exited 1' };
 
 describe('Downloads page', () => {
-    it('says what is kept and what is free', async () => {
-        const w = mount({ items: [ready], max: 2, freeBytes: 10 * 1024 ** 3 });
+    it('says how much of the budget is used and what is free', async () => {
+        const w = mount({
+            items: [ready], budget: 10 * 1024 ** 3,
+            used: 4610080218, freeBytes: 10 * 1024 ** 3
+        });
         const page = new w.DownloadsPage({});
         await page.show(); page.hide();
         assert.match(w.document.getElementById('downloads-hint').textContent,
-            /1 of 2 kept · 10\.0 GB free/);
+            /4\.3 GB of 10\.0 GB used · 10\.0 GB free/);
+    });
+
+    it('reads nothing held as zero, not as unknown', async () => {
+        // "— of — used" is what a falsy check gives, and it is wrong: an
+        // empty budget is a figure, an absent one is not
+        const w = mount({ items: [], budget: 10 * 1024 ** 3, used: 0, freeBytes: 1e10 });
+        const page = new w.DownloadsPage({});
+        await page.show(); page.hide();
+        assert.match(w.document.getElementById('downloads-hint').textContent,
+            /0\.0 GB of 10\.0 GB used/);
     });
 
     it('offers a ready film as a plain link the phone can take', async () => {
         // Not a button calling fetch: that would carry the Authorization
         // header the download manager cannot send, which is the whole
         // reason the URL is signed
-        const w = mount({ items: [ready], max: 2, freeBytes: 1e10 });
+        const w = mount({ items: [ready], budget: 10 * 1024 ** 3, used: 0, freeBytes: 1e10 });
         const page = new w.DownloadsPage({});
         await page.show(); page.hide();
 
@@ -58,7 +71,7 @@ describe('Downloads page', () => {
     });
 
     it('shows progress while a film is being prepared', async () => {
-        const w = mount({ items: [running], max: 2, freeBytes: 1e10 });
+        const w = mount({ items: [running], budget: 10 * 1024 ** 3, used: 0, freeBytes: 1e10 });
         const page = new w.DownloadsPage({});
         await page.show(); page.hide();
 
@@ -69,7 +82,7 @@ describe('Downloads page', () => {
     });
 
     it('shows why a film failed, and offers another go', async () => {
-        const w = mount({ items: [failed], max: 2, freeBytes: 1e10 });
+        const w = mount({ items: [failed], budget: 10 * 1024 ** 3, used: 0, freeBytes: 1e10 });
         const page = new w.DownloadsPage({});
         await page.show(); page.hide();
 
@@ -80,14 +93,14 @@ describe('Downloads page', () => {
     });
 
     it('calls a running job Cancel rather than Remove', async () => {
-        const w = mount({ items: [running], max: 2, freeBytes: 1e10 });
+        const w = mount({ items: [running], budget: 10 * 1024 ** 3, used: 0, freeBytes: 1e10 });
         const page = new w.DownloadsPage({});
         await page.show(); page.hide();
         assert.equal(w.document.querySelector('.download-actions button').textContent, 'Cancel');
     });
 
     it('says something useful when there is nothing', async () => {
-        const w = mount({ items: [], max: 2, freeBytes: 1e10 });
+        const w = mount({ items: [], budget: 10 * 1024 ** 3, used: 0, freeBytes: 1e10 });
         const page = new w.DownloadsPage({});
         await page.show(); page.hide();
         assert.match(w.document.getElementById('downloads-list').textContent,
@@ -97,12 +110,12 @@ describe('Downloads page', () => {
     it('only polls while something is being prepared', async () => {
         // A page that keeps asking forever is a page nobody notices is
         // wrong until the logs are full
-        const quiet = mount({ items: [ready], max: 2, freeBytes: 1e10 });
+        const quiet = mount({ items: [ready], budget: 10 * 1024 ** 3, used: 0, freeBytes: 1e10 });
         const idle = new quiet.DownloadsPage({});
         await idle.show();
         assert.equal(idle.timer, null);
 
-        const busyWin = mount({ items: [running], max: 2, freeBytes: 1e10 });
+        const busyWin = mount({ items: [running], budget: 10 * 1024 ** 3, used: 0, freeBytes: 1e10 });
         const busy = new busyWin.DownloadsPage({});
         await busy.show();
         assert.notEqual(busy.timer, null);
@@ -111,7 +124,7 @@ describe('Downloads page', () => {
     });
 
     it('survives the server refusing to answer', async () => {
-        const w = mount({ items: [], max: 2, freeBytes: 0 });
+        const w = mount({ items: [], budget: 10 * 1024 ** 3, used: 0, freeBytes: 0 });
         w.API.downloads.list = async () => { throw new Error('down'); };
         const page = new w.DownloadsPage({});
         await page.show(); page.hide();

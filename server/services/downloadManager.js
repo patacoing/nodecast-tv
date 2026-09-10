@@ -28,9 +28,11 @@ const xtreamApi = require('./xtreamApi');
 
 const DIR = path.join(__dirname, '..', '..', 'data', 'downloads');
 
-// How many films may be held at once. Two of them already take six to ten
-// gigabytes of the fifteen this server has free.
-const MAX_FILMS = 2;
+// How much may be held at once. A count was the first answer and it stopped
+// making sense as soon as episodes joined films: "2 of 2" reads the same
+// whether it is holding two gigabytes or six. The disk is what actually
+// runs out, so the disk is what is counted.
+const BUDGET_BYTES = 10 * 1024 ** 3;
 
 // Refuse to start when finishing would leave the disk this close to full.
 // A full disk does not just fail the download: it takes the database and
@@ -99,10 +101,16 @@ function get(itemId) {
         .get(itemId) || null;
 }
 
-/** Everything that holds disk space or is about to. */
-function heldCount() {
-    return getDb().prepare(`SELECT COUNT(*) c FROM downloads
-        WHERE status IN ('ready', 'queued', 'running')`).get().c;
+/**
+ * What is held or about to be. A finished file is measured; one still being
+ * fetched is charged at what it was estimated to weigh, so two requests in
+ * a row cannot both slip under the budget by being counted as nothing.
+ */
+function heldBytes() {
+    const rows = getDb().prepare(`SELECT size, estimate FROM downloads
+        WHERE status IN ('ready', 'queued', 'running')`).all();
+    return rows.reduce((total, row) =>
+        total + (row.size || row.estimate || ASSUMED_SIZE_BYTES), 0);
 }
 
 function freeBytes() {
@@ -118,15 +126,32 @@ function freeBytes() {
  * What the finished file is likely to weigh, from what the provider said
  * about the source. The audio shrinks a little and the picture is copied,
  * so the source size is a fair upper bound.
+ *
+ * Films and episodes describe themselves the same way -- a bitrate in kb/s
+ * and a duration in seconds under `info` -- so one reader serves both.
+ * Returns null when the provider said nothing useful.
  */
-async function estimateBytes(item) {
-    try {
-        const info = await vodInfo(item);
-        const br = Number(info?.info?.bitrate);
-        const secs = Number(info?.info?.duration_secs);
-        if (br > 0 && secs > 0) return (br * 1000 * secs) / 8;
-    } catch { /* fall through */ }
-    return ASSUMED_SIZE_BYTES;
+function sizeFrom(payload) {
+    const br = Number(payload?.info?.bitrate);
+    const secs = Number(payload?.info?.duration_secs);
+    if (br > 0 && secs > 0) return (br * 1000 * secs) / 8;
+    return null;
+}
+
+/**
+ * The provider's episode list, cached the same way vod_info is: seasons and
+ * episodes do not change once published, and the call is slow.
+ */
+async function seriesInfo(item) {
+    const source = await db.sources.getById(item.source_id);
+    if (!source || source.type !== 'xtream') return null;
+    const key = `series_info_${item.item_id}`;
+    const cached = cache.get('xtream', source.id, key, 30 * 24 * 3600 * 1000);
+    if (cached) return cached;
+    const api = xtreamApi.createFromSource(source);
+    const data = await api.getSeriesInfo(item.item_id);
+    cache.set('xtream', source.id, key, data);
+    return data;
 }
 
 async function vodInfo(item) {
@@ -146,47 +171,133 @@ async function vodInfo(item) {
 // ----------------------------------------------------------
 
 /**
- * Ask for a film. Returns { ok } or { ok: false, reason, ... } -- a refusal
- * is an answer, not an error, and the caller shows it.
+ * Ask for something. Returns { ok } or { ok: false, reason, ... } -- a
+ * refusal is an answer, not an error, and the caller shows it.
+ *
+ * A spec is everything the queue needs to fetch a thing without asking the
+ * catalogue again: episodes have no playlist_items row at all, since the
+ * provider only lists them through series_info, on demand.
+ *
+ * @param {{key, name, kind, sourceId, streamId, ext, duration, audioCodec,
+ *          estimate}} spec
  */
+function enqueue(spec) {
+    const existing = get(spec.key);
+    if (existing && existing.status !== 'failed') {
+        return { ok: true, already: existing.status };
+    }
+
+    // The budget is refused rather than enforced by eviction. Silently
+    // deleting the film someone was keeping for a flight is the worst
+    // thing this could do.
+    // A failed row holds nothing -- heldBytes already ignores it -- so a
+    // retry is still weighed against everything else being kept.
+    const used = heldBytes();
+    if (used + spec.estimate > BUDGET_BYTES) {
+        return {
+            ok: false, reason: 'quota',
+            budget: BUDGET_BYTES, used, needed: Math.round(spec.estimate),
+            held: list().filter(d => d.status !== 'failed')
+                .map(d => ({ item_id: d.item_id, name: d.name, status: d.status }))
+        };
+    }
+
+    if (freeBytes() - spec.estimate < FREE_FLOOR_BYTES) {
+        return { ok: false, reason: 'disk', needed: Math.round(spec.estimate) };
+    }
+
+    getDb().prepare(`
+        INSERT INTO downloads (item_id, name, status, duration, requested_at,
+                               kind, source_id, stream_id, container_extension,
+                               audio_codec, estimate)
+        VALUES (?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(item_id) DO UPDATE SET
+            status = 'queued', error = NULL, progress = 0,
+            requested_at = excluded.requested_at,
+            duration = excluded.duration, kind = excluded.kind,
+            source_id = excluded.source_id, stream_id = excluded.stream_id,
+            container_extension = excluded.container_extension,
+            audio_codec = excluded.audio_codec, estimate = excluded.estimate
+    `).run(spec.key, spec.name, spec.duration || null, Date.now(),
+        spec.kind, spec.sourceId, String(spec.streamId),
+        spec.ext || 'mp4', spec.audioCodec || null, Math.round(spec.estimate));
+
+    pump();
+    return { ok: true, already: null };
+}
+
+/** A film, by its catalogue row. */
 async function request(itemId) {
     const item = getDb().prepare(`SELECT id, source_id, item_id, name, type,
         container_extension FROM playlist_items WHERE id = ?`).get(itemId);
     if (!item) return { ok: false, reason: 'unknown' };
     if (item.type !== 'movie') return { ok: false, reason: 'not-a-film' };
 
-    const existing = get(itemId);
-    if (existing && existing.status !== 'failed') {
-        return { ok: true, already: existing.status };
-    }
-
-    // The quota is refused rather than enforced by eviction. Silently
-    // deleting the film someone was keeping for a flight is the worst
-    // thing this could do.
-    if (!existing && heldCount() >= MAX_FILMS) {
-        return {
-            ok: false, reason: 'quota', max: MAX_FILMS,
-            held: list().filter(d => d.status !== 'failed')
-                .map(d => ({ item_id: d.item_id, name: d.name, status: d.status }))
-        };
-    }
-
-    const estimate = await estimateBytes(item);
-    if (freeBytes() - estimate < FREE_FLOOR_BYTES) {
-        return { ok: false, reason: 'disk', needed: Math.round(estimate) };
-    }
-
     const info = await vodInfo(item).catch(() => null);
-    getDb().prepare(`
-        INSERT INTO downloads (item_id, name, status, duration, requested_at)
-        VALUES (?, ?, 'queued', ?, ?)
-        ON CONFLICT(item_id) DO UPDATE SET
-            status = 'queued', error = NULL, progress = 0,
-            requested_at = excluded.requested_at
-    `).run(itemId, item.name, Number(info?.info?.duration_secs) || null, Date.now());
+    const detail = getDb().prepare(
+        'SELECT audio_codec FROM item_details WHERE item_id = ?').get(itemId);
 
-    pump();
-    return { ok: true, already: null };
+    return enqueue({
+        key: String(itemId),
+        name: item.name,
+        kind: 'movie',
+        sourceId: item.source_id,
+        streamId: item.item_id,
+        ext: item.container_extension,
+        duration: Number(info?.info?.duration_secs) || null,
+        audioCodec: detail?.audio_codec || info?.info?.audio?.codec_name || null,
+        estimate: sizeFrom(info) || ASSUMED_SIZE_BYTES
+    });
+}
+
+/**
+ * One episode of a series. The episode is named by the provider's own
+ * stream id, which is all the client is trusted with: everything else --
+ * the source, the extension, the codecs -- is read back from series_info
+ * here, so a crafted request cannot point the fetch anywhere else.
+ */
+async function requestEpisode(seriesItemId, episodeId) {
+    const series = getDb().prepare(`SELECT id, source_id, item_id, name, type
+        FROM playlist_items WHERE id = ?`).get(seriesItemId);
+    if (!series) return { ok: false, reason: 'unknown' };
+    if (series.type !== 'series') return { ok: false, reason: 'not-a-film' };
+
+    const info = await seriesInfo(series).catch(() => null);
+    const found = findEpisode(info, episodeId);
+    if (!found) return { ok: false, reason: 'unknown-episode' };
+    const { episode, season } = found;
+
+    const num = String(episode.episode_num || '?').padStart(2, '0');
+    const label = `S${String(season).padStart(2, '0')}E${num}`;
+    const title = episode.title && !/^\s*$/.test(episode.title)
+        ? ` ${episode.title}` : '';
+
+    return enqueue({
+        key: `ep:${series.id}:${episode.id}`,
+        name: `${series.name} ${label}${title}`,
+        kind: 'episode',
+        sourceId: series.source_id,
+        streamId: episode.id,
+        ext: episode.container_extension,
+        duration: Number(episode.info?.duration_secs) || null,
+        audioCodec: episode.info?.audio?.codec_name || null,
+        estimate: sizeFrom(episode) || ASSUMED_SIZE_BYTES
+    });
+}
+
+/**
+ * series_info returns episodes keyed by season number, and the season a
+ * given episode belongs to is the key it was found under -- the episode
+ * object's own `season` field is not always filled in.
+ */
+function findEpisode(info, episodeId) {
+    const wanted = String(episodeId);
+    for (const [season, episodes] of Object.entries(info?.episodes || {})) {
+        for (const episode of episodes || []) {
+            if (String(episode.id) === wanted) return { episode, season };
+        }
+    }
+    return null;
 }
 
 function remove(itemId) {
@@ -223,31 +334,52 @@ function pump() {
         .finally(() => { running = false; pump(); });
 }
 
-async function prepare(row) {
-    const item = getDb().prepare(`SELECT id, source_id, item_id, name,
-        container_extension FROM playlist_items WHERE id = ?`).get(row.item_id);
-    if (!item) throw new Error('no longer in the catalogue');
+/**
+ * Where the provider serves this. Episodes live under a different path than
+ * films on Xtream, and asking for one under /movie/ does not fail -- it
+ * answers with something short and unrelated, which is exactly the kind of
+ * wrong that reaches a phone before anyone notices.
+ */
+function streamUrl(source, kind, streamId, ext) {
+    const segment = kind === 'episode' ? 'series' : 'movie';
+    return `${source.url.replace(/\/+$/, '')}/${segment}/`
+        + `${source.username}/${source.password}/`
+        + `${streamId}.${ext || 'mp4'}`;
+}
 
-    const source = await db.sources.getById(item.source_id);
+async function prepare(row) {
+    // The row carries what it needs. Rows queued before it did -- films,
+    // all of them -- fall back to the catalogue.
+    let { source_id, stream_id, container_extension, audio_codec } = row;
+    const name = row.name;
+    if (!source_id || !stream_id) {
+        const item = getDb().prepare(`SELECT source_id, item_id,
+            container_extension FROM playlist_items WHERE id = ?`).get(row.item_id);
+        if (!item) throw new Error('no longer in the catalogue');
+        source_id = item.source_id;
+        stream_id = item.item_id;
+        container_extension = item.container_extension;
+        audio_codec = getDb().prepare(
+            'SELECT audio_codec FROM item_details WHERE item_id = ?')
+            .get(row.item_id)?.audio_codec;
+    }
+
+    const source = await db.sources.getById(source_id);
     if (!source) throw new Error('source is gone');
 
     const settings = await db.settings.get();
     const userAgent = db.getUserAgent(settings);
 
-    const url = `${source.url.replace(/\/+$/, '')}/movie/`
-        + `${source.username}/${source.password}/`
-        + `${item.item_id}.${item.container_extension || 'mp4'}`;
+    const url = streamUrl(source, row.kind, stream_id, container_extension);
 
-    const detail = getDb().prepare(
-        'SELECT audio_codec FROM item_details WHERE item_id = ?').get(row.item_id);
     // Already something a phone decodes: copy it and leave it alone.
     const audioOk = ['aac', 'mp3'].includes(
-        String(detail?.audio_codec || '').toLowerCase());
+        String(audio_codec || '').toLowerCase());
 
     const out = path.join(ensureDir(), `${row.item_id.replace(/[^\w.-]/g, '_')}.mp4`);
     getDb().prepare(`UPDATE downloads SET status='running', path=?, progress=0
         WHERE item_id = ?`).run(out, row.item_id);
-    console.log(`[Downloads] Preparing ${item.name}${audioOk ? ' (copy)' : ' (audio to aac)'}`);
+    console.log(`[Downloads] Preparing ${name}${audioOk ? ' (copy)' : ' (audio to aac)'}`);
 
     await runFfmpeg(url, out, userAgent, audioOk, row);
 
@@ -276,7 +408,7 @@ async function prepare(row) {
     const size = fs.statSync(out).size;
     getDb().prepare(`UPDATE downloads SET status='ready', size=?, progress=1,
         ready_at=? WHERE item_id = ?`).run(size, Date.now(), row.item_id);
-    console.log(`[Downloads] Ready: ${item.name} (${(size / 1024 ** 3).toFixed(1)}GB)`);
+    console.log(`[Downloads] Ready: ${name} (${(size / 1024 ** 3).toFixed(1)}GB)`);
 }
 
 function runFfmpeg(url, out, userAgent, audioOk, row) {
@@ -371,7 +503,9 @@ function recoverInterrupted() {
 }
 
 module.exports = {
-    list, get, request, remove, recoverInterrupted,
-    signLink, verifyLink, freeBytes,
-    MAX_FILMS, DIR
+    list, get, request, requestEpisode, remove, recoverInterrupted,
+    signLink, verifyLink, freeBytes, heldBytes,
+    BUDGET_BYTES, DIR,
+    // exported for the tests
+    streamUrl, findEpisode, sizeFrom
 };

@@ -3185,6 +3185,7 @@ kbd {
 }
 
 .episode-item {
+  position: relative;   /* anchors the download button's message */
   display: flex;
   align-items: center;
   gap: var(--space-md);
@@ -3214,6 +3215,56 @@ kbd {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Kept out of the row's flow so it never squeezes the title, and quiet
+   until the row is under the pointer -- a season is a long list and twenty
+   bright buttons down the side of it is all anyone would see. */
+.episode-download {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.episode-item:hover .episode-download,
+.episode-download:focus,
+.episode-download:disabled {
+  opacity: 1;
+}
+
+.episode-download:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.episode-download:disabled {
+  cursor: default;
+  color: var(--color-accent);
+}
+
+.episode-download.failed {
+  color: var(--color-error);
+}
+
+/* What happened, said next to the row it happened to rather than in a
+   message box that loses which episode it was about. */
+.episode-download[data-say]::after {
+  content: attr(data-say);
+  position: absolute;
+  transform: translateX(calc(-100% - var(--space-sm)));
+  white-space: nowrap;
+  font-size: 0.8rem;
+  color: inherit;
 }
 
 .episode-duration {
@@ -5749,7 +5800,8 @@ html.tv-mode {
    ===================================================== */
 
 .tv-mode .nav-downloads,
-.tv-mode #movie-dl-btn {
+.tv-mode #movie-dl-btn,
+.tv-mode .episode-download {
   display: none;
 }
 

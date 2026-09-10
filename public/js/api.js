@@ -187,6 +187,9 @@ const API = {
     downloads: {
         list: () => API.request('GET', '/downloads'),
         request: (itemId) => API.request('POST', `/downloads/${encodeURIComponent(itemId)}`),
+        requestEpisode: (seriesItemId, episodeId) => API.request('POST',
+            `/downloads/series/${encodeURIComponent(seriesItemId)}`
+            + `/episode/${encodeURIComponent(episodeId)}`),
         remove: (itemId) => API.request('DELETE', `/downloads/${encodeURIComponent(itemId)}`)
     },
 

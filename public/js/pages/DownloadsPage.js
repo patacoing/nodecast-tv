@@ -45,14 +45,15 @@ class DownloadsPage {
     }
 
     render(data) {
-        const held = data.items.filter(i => i.status !== 'failed').length;
         this.hint.textContent =
-            `${held} of ${data.max} kept · ${this.gb(data.freeBytes)} free on the server`;
+            `${this.gb(data.used)} of ${this.gb(data.budget)} used`
+            + ` · ${this.gb(data.freeBytes)} free on the server`;
 
         if (!data.items.length) {
             this.container.innerHTML = '<div class="empty-state">'
                 + '<p>Nothing downloaded</p>'
-                + '<p class="hint">Open a film and choose Download to keep it for a journey</p>'
+                + '<p class="hint">Open a film or an episode and choose Download'
+                + ' to keep it for a journey</p>'
                 + '</div>';
             return;
         }
@@ -68,7 +69,7 @@ class DownloadsPage {
         el.className = `download-row status-${item.status}`;
 
         const state = {
-            queued: 'Waiting',
+            queued: item.estimate ? `Waiting · about ${this.gb(item.estimate)}` : 'Waiting',
             running: `Preparing… ${Math.round((item.progress || 0) * 100)}%`,
             ready: this.gb(item.size),
             failed: item.error || 'Failed'
@@ -122,7 +123,9 @@ class DownloadsPage {
     }
 
     gb(bytes) {
-        if (!bytes) return '—';
+        // Nothing held is a real figure -- "0.0 GB of 10.0 GB used" -- and
+        // has to read differently from a size the server never gave us.
+        if (bytes == null) return '—';
         return (bytes / 1024 ** 3).toFixed(1) + ' GB';
     }
 }

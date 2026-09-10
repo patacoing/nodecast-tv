@@ -49,7 +49,8 @@ router.get('/', (req, res) => {
         }));
         res.json({
             items,
-            max: manager.MAX_FILMS,
+            budget: manager.BUDGET_BYTES,
+            used: manager.heldBytes(),
             freeBytes: manager.freeBytes()
         });
     } catch (err) {
@@ -60,21 +61,44 @@ router.get('/', (req, res) => {
 /** Ask for one. A refusal is an answer with a reason, not a 500. */
 // A refusal has to arrive as a sentence: the client throws on a 409 and
 // only carries `error` across, so the reason has to travel in it.
+const gb = n => (n / 1024 ** 3).toFixed(1);
+
 const REFUSALS = {
-    quota: r => `Only ${r.max} films at a time — remove one first`,
+    quota: r => `Not enough of the ${gb(r.budget)} GB left`
+        + ` — ${gb(r.used)} GB held, this needs ${gb(r.needed)} GB.`
+        + ' Remove something first',
     disk: () => 'Not enough space left on the server',
-    unknown: () => 'That film is no longer in the catalogue',
-    'not-a-film': () => 'Only films can be downloaded'
+    unknown: () => 'That is no longer in the catalogue',
+    'unknown-episode': () => 'The provider no longer lists that episode',
+    'not-a-film': () => 'Only films and episodes can be downloaded'
 };
+
+function answer(res, result) {
+    if (result.ok) return res.status(202).json(result);
+    const say = REFUSALS[result.reason] || (() => 'Could not start');
+    res.status(409).json({ ...result, error: say(result) });
+}
 
 router.post('/:itemId', async (req, res) => {
     try {
-        const result = await manager.request(req.params.itemId);
-        if (result.ok) return res.status(202).json(result);
-        const say = REFUSALS[result.reason] || (() => 'Could not start');
-        res.status(409).json({ ...result, error: say(result) });
+        answer(res, await manager.request(req.params.itemId));
     } catch (err) {
         console.error('[Downloads] Request failed:', err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+/**
+ * One episode. The series is addressed by its catalogue row and the episode
+ * by the provider's stream id; the server looks the rest up itself rather
+ * than taking a URL from the client.
+ */
+router.post('/series/:seriesItemId/episode/:episodeId', async (req, res) => {
+    try {
+        answer(res, await manager.requestEpisode(
+            req.params.seriesItemId, req.params.episodeId));
+    } catch (err) {
+        console.error('[Downloads] Episode request failed:', err);
         res.status(500).json({ error: err.message });
     }
 });

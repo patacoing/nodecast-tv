@@ -258,7 +258,16 @@ function initSchema() {
                                         ['item_details', 'video_codec', 'TEXT'],
                                         ['item_details', 'audio_codec', 'TEXT'],
                                         ['item_details', 'audio_channels', 'INTEGER'],
-                                        ['item_details', 'height', 'INTEGER']]) {
+                                        ['item_details', 'height', 'INTEGER'],
+                                        // An episode has no playlist_items
+                                        // row, so its download carries
+                                        // everything needed to fetch it
+                                        ['downloads', 'kind', 'TEXT'],
+                                        ['downloads', 'source_id', 'INTEGER'],
+                                        ['downloads', 'stream_id', 'TEXT'],
+                                        ['downloads', 'container_extension', 'TEXT'],
+                                        ['downloads', 'audio_codec', 'TEXT'],
+                                        ['downloads', 'estimate', 'INTEGER']]) {
         try {
             db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
             console.log(`[SQLite] Added ${column} column to ${table}`);
