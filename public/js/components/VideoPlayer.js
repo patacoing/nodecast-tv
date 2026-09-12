@@ -8,6 +8,20 @@ function isMobile() {
     return /Mobi|Android|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
 }
 
+// How many times a failing live stream is chased before the picture is
+// given back to the viewer with an explanation. Each attempt backs off,
+// so this is about eight seconds of trying, not eight instant retries.
+const NETWORK_MAX_RETRIES = 6;
+
+// After those, it keeps trying at a pace that does not hammer a provider
+// which is already refusing us -- this account allows two connections in
+// total, so a flood of attempts is what makes the refusal last.
+const NETWORK_SLOW_RETRY_MS = 15000;
+
+// A live picture that has not advanced for this long, with nothing else
+// complaining, is stuck rather than merely buffering.
+const STALL_SECONDS = 6;
+
 class VideoPlayer {
     constructor() {
         this.video = document.getElementById('video-player');
@@ -262,6 +276,17 @@ class VideoPlayer {
         this.video.addEventListener('canplay', () => {
             this.loadingSpinner?.classList.remove('show');
         });
+
+        // Nothing was listening for the element giving up on its own. A
+        // live stream that loses its source fires this and then sits
+        // there: no HLS error, no spinner, just a still picture.
+        this.video.addEventListener('error', () => {
+            const err = this.video.error;
+            console.warn('[Player] Media element error:', err?.code, err?.message);
+            if (this.currentChannel) this.watchdogRecover('media element error');
+        });
+
+        this.startStallWatchdog();
 
         // Mute/Volume
         const updateVolumeUI = () => {
@@ -647,41 +672,7 @@ class VideoPlayer {
                 if (data.fatal) {
                     switch (data.type) {
                         case Hls.ErrorTypes.NETWORK_ERROR:
-                            // Track network retry attempts
-                            this.networkRetryCount = (this.networkRetryCount || 0) + 1;
-                            const now = Date.now();
-                            const timeSinceLastNetworkError = now - (this.lastNetworkErrorTime || 0);
-                            this.lastNetworkErrorTime = now;
-
-                            // Reset retry count if it's been more than 30 seconds since last error
-                            if (timeSinceLastNetworkError > 30000) {
-                                this.networkRetryCount = 1;
-                            }
-
-                            console.log(`Network error (attempt ${this.networkRetryCount}/3):`, data.details);
-
-                            if (this.networkRetryCount <= 3 && !this.isUsingProxy) {
-                                // Retry with increasing delay (1s, 2s, 3s)
-                                const retryDelay = this.networkRetryCount * 1000;
-                                console.log(`[HLS] Retrying in ${retryDelay}ms...`);
-                                setTimeout(() => {
-                                    if (this.hls) {
-                                        this.hls.startLoad();
-                                    }
-                                }, retryDelay);
-                            } else if (!this.isUsingProxy) {
-                                // After 3 retries, try proxy
-                                console.log('[HLS] Max retries reached, switching to proxy...');
-                                this.networkRetryCount = 0;
-                                this.isUsingProxy = true;
-                                const proxiedUrl = this.getProxiedUrl(this.currentUrl);
-                                this.hls.loadSource(proxiedUrl);
-                                this.hls.startLoad();
-                            } else {
-                                // Already using proxy, just retry
-                                console.log('[HLS] Network error on proxy, retrying...');
-                                this.hls.startLoad();
-                            }
+                            this.recoverNetworkError(data);
                             break;
                         case Hls.ErrorTypes.MEDIA_ERROR:
                             console.log('Media error, attempting recovery...');
@@ -742,15 +733,25 @@ class VideoPlayer {
                 console.log('Audio track switched:', data);
             });
 
-            // Detect buffer stalls which may indicate codec issues
+            // A live stream runs dry at the edge all the time, and
+            // recoverMediaError() detaches and re-attaches the media
+            // element to answer it -- which throws away the buffer and
+            // leaves the picture paused. That cure was worse than the
+            // stall. hls.js nudges past its own gaps; the watchdog picks
+            // up whatever is still stuck six seconds later.
             this.hls.on(Hls.Events.BUFFER_STALLED_ERROR, () => {
-                console.log('Buffer stalled, attempting recovery...');
-                this.hls.recoverMediaError();
+                console.log('[HLS] Buffer stalled at the live edge');
             });
 
             // Detect discontinuity changes (ad transitions) and help decoder reset
             this.hls.on(Hls.Events.FRAG_CHANGED, (event, data) => {
                 const frag = data.frag;
+                // Picture is back: forget the run of failures, and take
+                // the "Reconnecting" line down.
+                if (this.networkRetryCount) {
+                    this.networkRetryCount = 0;
+                    this.updateTranscodeStatus('hidden');
+                }
                 // Debug: log every fragment change
                 console.log(`[HLS] FRAG_CHANGED: sn=${frag?.sn}, cc=${frag?.cc}, level=${frag?.level}`);
 
@@ -864,14 +865,15 @@ class VideoPlayer {
      * Play a channel
      */
     async play(channel, streamUrl) {
-        this.currentChannel = channel;
-
         try {
             // Stop any WatchPage playback (movies/series) before starting Live TV
             window.app?.pages?.watch?.stop?.();
 
-            // Stop current playback
+            // Stop current playback. This clears the channel, the retry
+            // count and the proxy flag, so the new channel starts from a
+            // clean slate -- which is why it has to come first.
             this.stop();
+            this.currentChannel = channel;
             this.updateTranscodeStatus('hidden');
 
             // Hide "select a channel" overlay
@@ -1202,6 +1204,170 @@ class VideoPlayer {
     /**
      * Helper to play HLS stream (reduces duplication)
      */
+    /**
+     * Notice a picture that has stopped moving.
+     *
+     * hls.js reports the failures it knows about, but the ones that
+     * actually reach the viewer are the quiet ones: the element stops
+     * advancing and nothing anywhere says so. That is the "I have to
+     * press pause and play myself" case -- pressing play is what the
+     * element needed, and there was no reason a person had to be the one
+     * to do it.
+     */
+    startStallWatchdog() {
+        clearInterval(this.stallTimer);
+        let last = -1, still = 0;
+
+        this.stallTimer = setInterval(() => {
+            const v = this.video;
+            // Only a channel that is supposed to be playing right now
+            if (!v || !this.currentChannel || v.paused || v.ended || v.seeking) {
+                still = 0; last = -1; return;
+            }
+
+            const at = v.currentTime;
+            if (at !== last) { still = 0; last = at; return; }
+
+            still++;
+            if (still < STALL_SECONDS) return;
+            still = 0;
+
+            // There is video ahead of us and we are not playing it: the
+            // element is wedged on a gap. Step over it.
+            const ahead = v.buffered.length
+                && v.buffered.end(v.buffered.length - 1) > at + 0.5;
+            if (ahead) {
+                console.log('[Player] Stalled with buffer ahead, nudging');
+                v.currentTime = at + 0.5;
+                v.play().catch(() => { });
+                return;
+            }
+
+            this.watchdogRecover('no buffer after ' + STALL_SECONDS + 's');
+        }, 1000);
+    }
+
+    /**
+     * Put a wedged live stream back on the air. Live means there is no
+     * point resuming where it stopped, so this goes back to the edge
+     * rather than trying to play out a stale buffer.
+     */
+    watchdogRecover(why) {
+        const now = Date.now();
+        // Recovery that keeps firing is worse than the stall it is for
+        if (now - (this.lastWatchdogAt || 0) < 10000) return;
+        this.lastWatchdogAt = now;
+        console.log('[Player] Recovering playback:', why);
+
+        if (this.hls) {
+            this.hls.startLoad(-1);   // -1: resume at the live edge
+            if (this.video?.paused) this.video.play().catch(() => { });
+            return;
+        }
+        // A plain element source (the remux path) has nothing to reload
+        // but itself
+        if (this.video && this.currentUrl) {
+            const src = this.video.src;
+            this.video.load();
+            if (src) this.video.play().catch(() => { });
+        }
+    }
+
+    /**
+     * Recover from a fatal network error on a live stream.
+     *
+     * Measured against this provider rather than guessed at. The account
+     * allows two simultaneous connections, and one channel playing direct
+     * uses one of them. What used to happen on a hiccup was:
+     *
+     *   transient 403 on a playlist refresh
+     *     -> three quick retries
+     *     -> give up and switch to the proxy, permanently
+     *     -> the playlist is now fetched by the server while the segments
+     *        are still fetched by the device: two connections for one
+     *        channel, so the account sits at its limit
+     *     -> every later refresh is refused, and the branch that handled
+     *        that case called startLoad() with no delay and no limit
+     *
+     * So the fallback that was meant to rescue playback is what kept it
+     * broken: it doubled the connection count against a cap of two. The
+     * account was measured at 1/2 playing direct and 2/2 through the
+     * proxy, with one channel on screen either way.
+     *
+     * The proxy is kept for what it can actually fix -- a request that
+     * never got an HTTP answer at all, which is what a CORS or DNS
+     * failure looks like from here. A 403 or a 503 IS an answer: the
+     * provider is refusing us, and asking again from a second address
+     * gets the same refusal while costing another connection.
+     */
+    recoverNetworkError(data) {
+        const now = Date.now();
+        // A hiccup half an hour ago is not part of this run of trouble
+        if (now - (this.lastNetworkErrorTime || 0) > 30000) this.networkRetryCount = 0;
+        this.lastNetworkErrorTime = now;
+        this.networkRetryCount = (this.networkRetryCount || 0) + 1;
+
+        const status = data.response?.code;
+        // The provider answered, it just said no. The proxy will be told
+        // the same thing, and will cost a connection to hear it.
+        const answered = status >= 400;
+
+        // Past the quick attempts it keeps trying, slowly. Stopping
+        // altogether is the behaviour being fixed here: a channel that
+        // comes back on its own should come back on its own, without
+        // anyone reaching for the remote.
+        if (this.networkRetryCount > NETWORK_MAX_RETRIES) {
+            this.updateTranscodeStatus('reconnecting', 'Reconnecting…');
+            console.log('[HLS] Still failing, slow retry');
+            this.reloadAfter(NETWORK_SLOW_RETRY_MS, null);
+            return;
+        }
+
+        // Back off, but never so far that a live stream is unwatchable
+        const delay = Math.min(1000 * 2 ** (this.networkRetryCount - 1), 8000);
+
+        if (!answered && !this.isUsingProxy && this.networkRetryCount >= 3) {
+            console.log('[HLS] No answer from the stream, trying through the server');
+            this.isUsingProxy = true;
+            this.reloadAfter(delay, this.getProxiedUrl(this.currentUrl));
+            return;
+        }
+
+        // Back to a direct connection: on this provider the proxy costs a
+        // second connection out of two, so staying on it makes the next
+        // refusal more likely rather than less.
+        if (this.isUsingProxy && this.networkRetryCount >= 3) {
+            console.log('[HLS] Proxy is not helping, going back to direct');
+            this.isUsingProxy = false;
+            this.reloadAfter(delay, this.currentUrl);
+            return;
+        }
+
+        console.log(`[HLS] ${data.details}`
+            + `${status ? ' (' + status + ')' : ''}, retrying in ${delay}ms`
+            + ` (${this.networkRetryCount}/${NETWORK_MAX_RETRIES})`);
+        this.reloadAfter(delay, null);
+    }
+
+    /**
+     * Resume loading after a pause, optionally from a different URL.
+     * Everything goes through here so no path can retry in a tight loop.
+     */
+    reloadAfter(delay, url) {
+        clearTimeout(this.reloadTimer);
+        this.reloadTimer = setTimeout(() => {
+            if (!this.hls) return;
+            if (url) this.hls.loadSource(url);
+            this.hls.startLoad();
+            // loadSource on its own leaves the element paused where the
+            // stall left it, which is the "I have to press play myself"
+            // the whole exercise is about.
+            if (this.video?.paused) {
+                this.video.play().catch(() => { });
+            }
+        }, delay);
+    }
+
     playHls(url) {
         if (this.hls) {
             this.hls.destroy();
@@ -1218,11 +1384,18 @@ class VideoPlayer {
         });
 
         this.hls.on(Hls.Events.ERROR, (event, data) => {
-            if (data.fatal) {
-                // Simple error handling for forced HLS/transcode modes
-                console.error('Fatal HLS error in transcode mode:', data);
-                this.hls.destroy();
+            if (!data.fatal) return;
+            // This used to destroy the player and stop, which left the
+            // picture frozen with no way back except starting the channel
+            // again by hand. A transcode session dying is exactly the case
+            // that deserves a retry: it is the server's own ffmpeg, and it
+            // is restarted by loading the playlist again.
+            console.error('[HLS] Fatal error in transcode mode:', data.details);
+            if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                this.hls.recoverMediaError();
+                return;
             }
+            this.recoverNetworkError(data);
         });
     }
 
@@ -1403,6 +1576,13 @@ class VideoPlayer {
     stop() {
         // Stop any running transcode session first
         this.stopTranscodeSession();
+
+        // A pending retry must not resurrect a channel the viewer has left,
+        // and the watchdog must not treat a deliberate stop as a stall.
+        clearTimeout(this.reloadTimer);
+        this.currentChannel = null;
+        this.networkRetryCount = 0;
+        this.isUsingProxy = false;
 
         if (this.hls) {
             this.hls.destroy();

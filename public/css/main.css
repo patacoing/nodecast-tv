@@ -4267,6 +4267,22 @@ kbd {
   box-shadow: 0 0 10px rgba(255, 68, 68, 0.3);
 }
 
+/* Shown while a live channel is being chased back onto the air, so a
+   still picture is not mistaken for a frozen app. */
+.transcode-status.reconnecting {
+  background: rgba(255, 153, 0, 0.85);
+  animation: reconnect-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes reconnect-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .transcode-status.reconnecting { animation: none; }
+}
+
 .transcode-status.remuxing {
   background: rgba(255, 153, 0, 0.8);
   /* Orange for Remux */
