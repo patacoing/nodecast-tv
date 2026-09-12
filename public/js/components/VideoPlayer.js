@@ -1216,34 +1216,70 @@ class VideoPlayer {
      */
     startStallWatchdog() {
         clearInterval(this.stallTimer);
-        let last = -1, still = 0;
+        let lastFrames = -1, lastTime = -1, stalled = 0, step = 0;
 
         this.stallTimer = setInterval(() => {
             const v = this.video;
-            // Only a channel that is supposed to be playing right now
-            if (!v || !this.currentChannel || v.paused || v.ended || v.seeking) {
-                still = 0; last = -1; return;
+            if (!v || !this.currentChannel || v.paused || v.ended) {
+                stalled = 0; step = 0; lastFrames = -1; lastTime = -1; return;
             }
 
+            // Decoded frames, not the clock.
+            //
+            // Measured on the Fire TV: the position advanced in thirty
+            // second jumps while 420 frames were decoded in ten minutes.
+            // The picture was frozen the whole time. currentTime moving is
+            // not evidence that anything is being played -- setting it is
+            // how a stalled player tries to escape, so watching it means
+            // mistaking the attempts at recovery for recovery.
+            const q = v.getVideoPlaybackQuality?.();
+            const frames = q ? q.totalVideoFrames : null;
+
+            if (frames !== null) {
+                if (frames !== lastFrames) { stalled = 0; step = 0; lastFrames = frames; return; }
+            } else {
+                // Older WebViews expose no frame counter; the clock is all
+                // there is on those.
+                const at = v.currentTime;
+                if (at !== lastTime) { stalled = 0; step = 0; lastTime = at; return; }
+            }
+            stalled++;
+
+            if (stalled < STALL_SECONDS) return;
+            // Each escalation gets its own window rather than all of them
+            // firing a second apart
+            if (stalled % STALL_SECONDS) return;
+            step++;
+
             const at = v.currentTime;
-            if (at !== last) { still = 0; last = at; return; }
+            const buffered = v.buffered;
+            const edge = buffered.length ? buffered.end(buffered.length - 1) : 0;
+            const ahead = edge - at;
 
-            still++;
-            if (still < STALL_SECONDS) return;
-            still = 0;
-
-            // There is video ahead of us and we are not playing it: the
-            // element is wedged on a gap. Step over it.
-            const ahead = v.buffered.length
-                && v.buffered.end(v.buffered.length - 1) > at + 0.5;
-            if (ahead) {
-                console.log('[Player] Stalled with buffer ahead, nudging');
-                v.currentTime = at + 0.5;
+            // Live: there is no value in playing out a stale buffer, so
+            // rejoin near the front of it. hls.js has already tried
+            // nudging by a fraction of a second, and on this device that
+            // is what left `seeking` stuck true for ever.
+            if (step === 1 && ahead > 2) {
+                console.log(`[Player] No frames for ${stalled}s with ${ahead.toFixed(1)}s buffered, skipping to the edge`);
+                try { v.currentTime = edge - 1.5; } catch { /* not seekable yet */ }
                 v.play().catch(() => { });
                 return;
             }
 
-            this.watchdogRecover('no buffer after ' + STALL_SECONDS + 's');
+            // A decoder that will not start again needs a new one, and
+            // detaching and re-attaching the media element is how hls.js
+            // gives it one. Heavy enough not to be the first answer, and
+            // the right one once the position has been moved and the
+            // picture still has not come back.
+            if (step <= 2 && this.hls) {
+                console.log(`[Player] Still no frames after ${stalled}s, resetting the decoder`);
+                this.hls.recoverMediaError();
+                v.play().catch(() => { });
+                return;
+            }
+
+            this.watchdogRecover(`no frames for ${stalled}s, readyState ${v.readyState}`);
         }, 1000);
     }
 
@@ -1260,8 +1296,15 @@ class VideoPlayer {
         console.log('[Player] Recovering playback:', why);
 
         if (this.hls) {
-            this.hls.startLoad(-1);   // -1: resume at the live edge
-            if (this.video?.paused) this.video.play().catch(() => { });
+            // Last resort, so it is the whole thing: load the playlist
+            // again from scratch rather than resuming a session whose
+            // decoder and buffer have both already been given their
+            // chance. -1 asks hls.js to start at the live edge.
+            const url = this.hls.url || this.currentUrl;
+            this.hls.stopLoad();
+            if (url) this.hls.loadSource(url);
+            this.hls.startLoad(-1);
+            this.video?.play().catch(() => { });
             return;
         }
         // A plain element source (the remux path) has nothing to reload
