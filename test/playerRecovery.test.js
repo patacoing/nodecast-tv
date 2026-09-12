@@ -119,6 +119,26 @@ describe('recovering a live stream', () => {
         assert.equal(p.reloads[p.reloads.length - 1].url, p.currentUrl);
     });
 
+    it('says so when the channel answers with no playlist at all', () => {
+        // Measured on TF1 HD: 200 with an empty body, identical direct and
+        // through the proxy. Reconnecting for ever against that is a black
+        // screen with a reassuring caption on it.
+        const dead = { details: 'manifestParsingError', response: { code: 200 } };
+        p.recoverNetworkError(dead);
+        p.recoverNetworkError(dead);
+        assert.match(p.status, /ERROR: .*not broadcasting/);
+        const before = p.reloads.length;
+        p.recoverNetworkError(dead);
+        assert.equal(p.reloads.length, before, 'must stop retrying');
+    });
+
+    it('does not reach for the proxy on a 200 that was not a playlist', () => {
+        // An HTTP answer is an answer, whatever its status: the proxy gets
+        // the same body and spends the account's other connection on it
+        p.recoverNetworkError({ details: 'manifestParsingError', response: { code: 200 } });
+        assert.equal(p.isUsingProxy, undefined);
+    });
+
     it('treats trouble half an hour later as a fresh start', () => {
         for (let i = 0; i < 4; i++) p.recoverNetworkError(refused(403));
         p.lastNetworkErrorTime = Date.now() - 60000;

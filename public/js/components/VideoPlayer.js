@@ -1351,9 +1351,24 @@ class VideoPlayer {
         this.networkRetryCount = (this.networkRetryCount || 0) + 1;
 
         const status = data.response?.code;
-        // The provider answered, it just said no. The proxy will be told
-        // the same thing, and will cost a connection to hear it.
-        const answered = status >= 400;
+        // Any HTTP status at all means we were answered, whatever it said.
+        // The proxy will be answered the same way and will spend the
+        // account's other connection to hear it. Only a request that never
+        // got a response -- CORS, DNS, a refused connection -- is
+        // something routing through the server can fix.
+        const answered = status > 0;
+
+        // A reply that was not a playlist. This provider answers a channel
+        // it no longer carries with 200 and an empty body: measured on
+        // TF1 HD, identical direct and through the proxy. That is not a
+        // network problem and will not come good by being asked again, so
+        // say so instead of reconnecting for ever against a channel that
+        // is not broadcasting.
+        if (data.details === 'manifestParsingError' && this.networkRetryCount >= 2) {
+            console.log('[HLS] Channel answers with no playlist, stopping');
+            this.showError('This channel is not broadcasting right now.');
+            return;
+        }
 
         // Past the quick attempts it keeps trying, slowly. Stopping
         // altogether is the behaviour being fixed here: a channel that
