@@ -391,6 +391,18 @@ class TranscodeSession extends EventEmitter {
         const useUpscale = this.options.upscaleEnabled;
         const upscaleMethod = this.options.upscaleMethod || 'hardware';
 
+        // maxResolution is a ceiling, not a target. Scaling to it
+        // unconditionally turned it into one: with the setting on 4k, a
+        // 720p channel was being enlarged to 2160p and handed to libx264,
+        // which refused it -- "MB rate (1620000) > level limit" -- and the
+        // session died before writing its first segment. This server has
+        // no GPU, so real-time 4K was never going to happen either way.
+        //
+        // Unless upscaling was actually asked for, the height is whichever
+        // is smaller: the cap, or what the source already was. Evaluated
+        // by ffmpeg, since the source size is not known here.
+        const target = useUpscale ? String(height) : `min(${height}\\,ih)`;
+
         // Log upscaling status
         if (useUpscale) {
             console.log(`[TranscodeSession ${this.id}] Upscaling: ${upscaleMethod} method to ${height}p`);
@@ -402,22 +414,22 @@ class TranscodeSession extends EventEmitter {
                 case 'nvenc':
                     // NVIDIA CUDA scaling with Lanczos
                     // Force nv12 (8-bit) output to handle 10-bit inputs (fixes "10 bit encode not supported")
-                    return `scale_cuda=-2:${height}:interp_algo=lanczos:format=nv12`;
+                    return `scale_cuda=-2:${target}:interp_algo=lanczos:format=nv12`;
                 case 'vaapi':
-                    return `scale_vaapi=w=-2:h=${height}:format=nv12`;
+                    return `scale_vaapi=w=-2:h=${target}:format=nv12`;
                 case 'qsv':
-                    return `scale_qsv=w=-2:h=${height}:format=nv12`;
+                    return `scale_qsv=w=-2:h=${target}:format=nv12`;
                 case 'amf':
                     // AMF uses CPU decode, so use software scale
-                    return useUpscale ? `scale=-2:${height}:flags=lanczos` : `scale=-2:${height}`;
+                    return useUpscale ? `scale=-2:${target}:flags=lanczos` : `scale=-2:${target}`;
                 case 'software':
                 default:
-                    return useUpscale ? `scale=-2:${height}:flags=lanczos` : `scale=-2:${height}`;
+                    return useUpscale ? `scale=-2:${target}:flags=lanczos` : `scale=-2:${target}`;
             }
         }
 
         // Software Lanczos scaling (high quality, slower)
-        return `scale=-2:${height}:flags=lanczos`;
+        return `scale=-2:${target}:flags=lanczos`;
     }
 
     /**
@@ -506,7 +518,9 @@ class TranscodeSession extends EventEmitter {
             '-preset', 'veryfast',     // Fast for real-time
             '-crf', String(crf),
             '-profile:v', 'high',
-            '-level', '4.1',
+            // No pinned level: x264 works out the lowest one the output
+            // actually fits. 4.1 was hardcoded, and 1080p50 does not fit
+            // in it, so the encoder rejected streams it could have made.
             '-pix_fmt', 'yuv420p'      // Force 8-bit output for compatibility (fixes 10-bit input errors)
         );
     }

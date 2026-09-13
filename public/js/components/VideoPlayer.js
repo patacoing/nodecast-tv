@@ -1271,7 +1271,19 @@ class VideoPlayer {
                 // The viewer may have moved on while the session started
                 if (this.currentUrl !== source) return;
                 this.currentUrl = playlistUrl;
-                this.playHls(playlistUrl);
+                // startTranscodeSession falls back to /api/transcode?url=
+                // when the session cannot be created, and that endpoint
+                // streams fragmented MP4, not HLS. Handing it to hls.js
+                // gets it parsed as a playlist, rejected, and retried --
+                // which is what the log showed: four rounds of "client
+                // disconnected, killing FFmpeg".
+                if (/\.m3u8(\?|$)/.test(playlistUrl)) {
+                    this.playHls(playlistUrl);
+                } else {
+                    if (this.hls) { this.hls.destroy(); this.hls = null; }
+                    this.video.src = playlistUrl;
+                    this.video.play().catch(() => { });
+                }
             })
             .catch(err => {
                 console.error('[Player] Could not transcode:', err.message);

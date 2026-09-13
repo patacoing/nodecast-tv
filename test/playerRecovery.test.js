@@ -324,6 +324,22 @@ describe('a stream with no video track', () => {
             'playHls:/hls/session/42.m3u8']);
     });
 
+    it('plays a non-HLS fallback as a plain source', () => {
+        // startTranscodeSession falls back to /api/transcode?url= when the
+        // session cannot be made, and that streams fragmented MP4. hls.js
+        // parses it as a playlist, rejects it and retries -- four rounds
+        // of "client disconnected, killing FFmpeg" in the log.
+        const h = harness();
+        h.p.video = { play: () => { h.acts.push('video.play'); return Promise.resolve(); } };
+        h.p.startTranscodeSession = () => Promise.resolve('/api/transcode?url=http%3A%2F%2Fx');
+        h.p.checkVideoTrack({ audio: {} });
+        return new Promise(r => setImmediate(r)).then(() => {
+            assert.equal(h.acts.some(a => a.startsWith('playHls')), false);
+            assert.equal(h.p.video.src, '/api/transcode?url=http%3A%2F%2Fx');
+            assert.equal(h.acts.includes('video.play'), true);
+        });
+    });
+
     it('leaves a normal stream alone', () => {
         const h = harness();
         h.p.checkVideoTrack({ audio: {}, video: { codec: 'avc1.64001f' } });
