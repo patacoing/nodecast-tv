@@ -784,6 +784,10 @@ class VideoPlayer {
             this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 this.video.play().catch(e => console.log('Autoplay prevented:', e));
             });
+
+            this.hls.on(Hls.Events.BUFFER_CODECS, (event, data) => {
+                this.checkVideoTrack(data);
+            });
         }
 
         // Keyboard controls
@@ -1214,13 +1218,63 @@ class VideoPlayer {
      * element needed, and there was no reason a person had to be the one
      * to do it.
      */
+    /**
+     * Sound but no picture.
+     *
+     * hls.js demuxes MPEG-TS itself and only understands H.264 and HEVC
+     * video. Faced with anything else -- MPEG-2 is still common on these
+     * feeds -- it does not fail: it quietly builds an audio track and no
+     * video track at all, and the channel plays perfectly with a black
+     * screen. Measured on LIGUE 1+ 4: one buffer, mp4a.40.2, 0x0 pixels,
+     * zero frames decoded, readyState 4 because as far as the element is
+     * concerned it has everything it needs.
+     *
+     * ffmpeg on the server has no such limits, so the answer is to hand
+     * the channel to a transcode session. This is the case the probe was
+     * meant to catch, but probing every channel costs a connection out of
+     * the two this account allows, so it is done on the evidence instead:
+     * once hls.js has told us there is no video, there is no doubt left.
+     */
+    checkVideoTrack(tracks) {
+        // What hls.js built is the authority on whether there is a picture
+        // to watch at all, and the watchdog needs to know: a stream with
+        // no video decodes no frames for ever, which is not a stall.
+        this.hasVideoTrack = !!tracks?.video;
+        if (!tracks || tracks.video || !tracks.audio) return;
+        // Once per channel. Keyed on the channel rather than on the URL
+        // because the URL becomes the session's own playlist: if the
+        // transcode comes back without a video track too, matching on the
+        // URL would never match and this would start sessions for ever.
+        if (!this.currentChannel || this.transcodeFallbackFor === this.currentChannel) return;
+        this.transcodeFallbackFor = this.currentChannel;
+
+        // The source is kept separately, to notice a viewer who has
+        // changed channel while the session was starting
+        const source = this.currentUrl;
+        console.log('[Player] No video track from this stream, transcoding it');
+        this.updateTranscodeStatus('transcoding', 'Transcoding (Video)');
+
+        this.startTranscodeSession(source, { videoMode: 'encode' })
+            .then(playlistUrl => {
+                // The viewer may have moved on while the session started
+                if (this.currentUrl !== source) return;
+                this.currentUrl = playlistUrl;
+                this.playHls(playlistUrl);
+            })
+            .catch(err => {
+                console.error('[Player] Could not transcode:', err.message);
+                this.showError('This channel needs transcoding and it failed.');
+            });
+    }
+
     startStallWatchdog() {
         clearInterval(this.stallTimer);
         let lastFrames = -1, lastTime = -1, stalled = 0, step = 0;
 
         this.stallTimer = setInterval(() => {
             const v = this.video;
-            if (!v || !this.currentChannel || v.paused || v.ended) {
+            if (!v || !this.currentChannel || v.paused || v.ended
+                || this.hasVideoTrack === false) {
                 stalled = 0; step = 0; lastFrames = -1; lastTime = -1; return;
             }
 
@@ -1641,6 +1695,8 @@ class VideoPlayer {
         this.currentChannel = null;
         this.networkRetryCount = 0;
         this.isUsingProxy = false;
+        this.hasVideoTrack = undefined;
+        this.transcodeFallbackFor = null;
 
         if (this.hls) {
             this.hls.destroy();

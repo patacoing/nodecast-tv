@@ -285,3 +285,73 @@ describe('the stall watchdog', () => {
         assert.deepEqual(h.acts, []);
     });
 });
+
+/**
+ * Sound but no picture.
+ *
+ * hls.js demuxes MPEG-TS itself and only understands H.264 and HEVC video.
+ * Faced with anything else it does not fail: it builds an audio track and
+ * no video track, and the channel plays perfectly behind a black screen.
+ * Measured on LIGUE 1+ 4: one source buffer, mp4a.40.2, 0x0 pixels, zero
+ * frames decoded, readyState 4 -- the element had everything it wanted.
+ */
+describe('a stream with no video track', () => {
+    const CHECK = lift('checkVideoTrack');
+
+    function harness() {
+        const acts = [];
+        const p = new (new Function('console', `
+            return class C {
+                ${CHECK}
+            };`)({ log() { }, error() { } }))();
+        p.currentChannel = { name: 'LIGUE 1+ 4' };
+        p.currentUrl = 'http://provider/live/35448.m3u8';
+        p.updateTranscodeStatus = (m, t) => acts.push('status:' + (t || m));
+        p.showError = (m) => acts.push('error');
+        p.playHls = (u) => acts.push('playHls:' + u);
+        p.startTranscodeSession = (url, o) => {
+            acts.push('transcode:' + o.videoMode);
+            return Promise.resolve('/hls/session/42.m3u8');
+        };
+        return { p, acts };
+    }
+
+    it('sends a picture-less stream to the server to be transcoded', async () => {
+        const h = harness();
+        h.p.checkVideoTrack({ audio: { codec: 'mp4a.40.2' } });
+        await new Promise(r => setImmediate(r));
+        assert.deepEqual(h.acts, ['status:Transcoding (Video)', 'transcode:encode',
+            'playHls:/hls/session/42.m3u8']);
+    });
+
+    it('leaves a normal stream alone', () => {
+        const h = harness();
+        h.p.checkVideoTrack({ audio: {}, video: { codec: 'avc1.64001f' } });
+        assert.deepEqual(h.acts, []);
+        assert.equal(h.p.hasVideoTrack, true);
+    });
+
+    it('does not transcode the same stream twice', async () => {
+        const h = harness();
+        h.p.checkVideoTrack({ audio: {} });
+        await new Promise(r => setImmediate(r));
+        h.acts.length = 0;
+        h.p.checkVideoTrack({ audio: {} });
+        assert.deepEqual(h.acts, [], 'a second report must not start another session');
+    });
+
+    it('drops the result if the viewer has changed channel meanwhile', async () => {
+        const h = harness();
+        h.p.checkVideoTrack({ audio: {} });
+        h.p.currentUrl = 'http://provider/live/99999.m3u8';   // zapped
+        await new Promise(r => setImmediate(r));
+        assert.equal(h.acts.some(a => a.startsWith('playHls')), false);
+    });
+
+    it('tells the watchdog there is no picture to watch', () => {
+        // Otherwise it decides a radio station has been stalled for ever
+        const h = harness();
+        h.p.checkVideoTrack({ audio: {} });
+        assert.equal(h.p.hasVideoTrack, false);
+    });
+});
