@@ -355,3 +355,30 @@ describe('a stream with no video track', () => {
         assert.equal(h.p.hasVideoTrack, false);
     });
 });
+
+/**
+ * Every hls.js instance gets the common handlers.
+ *
+ * This file builds four of them. The picture-less-stream check was added
+ * to exactly one -- the one live TV does not use -- so the fix shipped,
+ * the channel still played sound behind a black screen, and nothing in the
+ * logs said why. A test that reads the file is the only kind that catches
+ * a fifth construction site being added later.
+ */
+describe('hls instances', () => {
+    const PLAYER = fs.readFileSync(
+        path.join(__dirname, '..', 'public', 'js', 'components', 'VideoPlayer.js'), 'utf8');
+
+    it('routes every construction through attachCommonHandlers', () => {
+        const built = PLAYER.match(/new Hls\(/g) || [];
+        const wrapped = PLAYER.match(/attachCommonHandlers\(new Hls\(/g) || [];
+        assert.equal(wrapped.length, built.length,
+            `${built.length} instances built, ${wrapped.length} wrapped`);
+        assert.ok(built.length >= 4, 'expected the known construction sites');
+    });
+
+    it('hooks the codec report there, so it holds for all of them', () => {
+        const fn = PLAYER.slice(PLAYER.indexOf('attachCommonHandlers(hls) {'));
+        assert.match(fn.slice(0, 400), /BUFFER_CODECS/);
+    });
+});

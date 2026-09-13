@@ -664,7 +664,7 @@ class VideoPlayer {
 
         // Initialize HLS.js if supported
         if (Hls.isSupported()) {
-            this.hls = new Hls(this.getHlsConfig());
+            this.hls = this.attachCommonHandlers(new Hls(this.getHlsConfig()));
             this.lastDiscontinuity = -1; // Track discontinuity changes
 
             this.hls.on(Hls.Events.ERROR, (event, data) => {
@@ -783,10 +783,6 @@ class VideoPlayer {
 
             this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
                 this.video.play().catch(e => console.log('Autoplay prevented:', e));
-            });
-
-            this.hls.on(Hls.Events.BUFFER_CODECS, (event, data) => {
-                this.checkVideoTrack(data);
             });
         }
 
@@ -1000,7 +996,7 @@ class VideoPlayer {
                     if (this.hls) {
                         this.hls.destroy();
                     }
-                    this.hls = new Hls();
+                    this.hls = this.attachCommonHandlers(new Hls());
                     this.hls.loadSource(playlistUrl);
                     this.hls.attachMedia(this.video);
                     this.hls.on(Hls.Events.MANIFEST_PARSED, () => {
@@ -1108,7 +1104,7 @@ class VideoPlayer {
                 // The HLS init logic is quite complex with error handling
                 // I'll inline the Hls init here as per original but mindful of proxy vs local
 
-                this.hls = new Hls(this.getHlsConfig());
+                this.hls = this.attachCommonHandlers(new Hls(this.getHlsConfig()));
                 this.hls.loadSource(finalUrl);
                 this.hls.attachMedia(this.video);
 
@@ -1235,6 +1231,22 @@ class VideoPlayer {
      * the two this account allows, so it is done on the evidence instead:
      * once hls.js has told us there is no video, there is no doubt left.
      */
+    /**
+     * Handlers every hls.js instance needs, wherever it was built.
+     *
+     * There are four places in this file that construct one, and the
+     * picture-less-stream check was added to exactly one of them -- the
+     * one live TV does not use. The channel played sound with a black
+     * screen and the new code never ran. Anything that must hold for all
+     * of them belongs here rather than in whichever block was in front of
+     * me at the time.
+     */
+    attachCommonHandlers(hls) {
+        if (!hls) return hls;
+        hls.on(Hls.Events.BUFFER_CODECS, (event, data) => this.checkVideoTrack(data));
+        return hls;
+    }
+
     checkVideoTrack(tracks) {
         // What hls.js built is the authority on whether there is a picture
         // to watch at all, and the watchdog needs to know: a stream with
@@ -1485,7 +1497,7 @@ class VideoPlayer {
             this.hls.destroy();
         }
 
-        this.hls = new Hls(this.getHlsConfig());
+        this.hls = this.attachCommonHandlers(new Hls(this.getHlsConfig()));
         this.hls.loadSource(url);
         this.hls.attachMedia(this.video);
 
