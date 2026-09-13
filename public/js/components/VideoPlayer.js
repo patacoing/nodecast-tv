@@ -1266,7 +1266,10 @@ class VideoPlayer {
         console.log('[Player] No video track from this stream, transcoding it');
         this.updateTranscodeStatus('transcoding', 'Transcoding (Video)');
 
-        this.startTranscodeSession(source, { videoMode: 'encode' })
+        // 720p, not whatever the setting says. This is a rescue, and it
+        // runs on two cores with no GPU: 1080p50 saturates them and the
+        // picture stutters. A Fire TV Stick is a 1080p device anyway.
+        this.startTranscodeSession(source, { videoMode: 'encode', maxResolution: '720p' })
             .then(playlistUrl => {
                 // The viewer may have moved on while the session started
                 if (this.currentUrl !== source) return;

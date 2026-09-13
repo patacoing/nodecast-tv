@@ -19,7 +19,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Outfit:wght@800&display=swap"
     rel="stylesheet">
   <!-- HLS.js for video playback -->
-  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.7/dist/hls.min.js"></script>
+  <!-- 1.5.7 could not demux HEVC inside MPEG-TS, and simply built an audio
+       track and no video one: channels played sound behind a black screen.
+       Verified on the Fire TV against LIGUE 1+ 4, which is HEVC 1080p50 --
+       1.5.7 reports audio alone, 1.7.3 reports hvc1.1.6.L123.B0. -->
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js"></script>
 </head>
 
 <body>

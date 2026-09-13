@@ -29,7 +29,8 @@ transcodeSession.startCleanupInterval();
  * Body: { url: string, seekOffset?: number }
  */
 router.post('/session', async (req, res) => {
-    const { url, seekOffset, videoMode, videoCodec, audioCodec, audioChannels } = req.body;
+    const { url, seekOffset, videoMode, videoCodec, audioCodec, audioChannels,
+            maxResolution } = req.body;
 
     if (!url) {
         return res.status(400).json({ error: 'URL is required' });
@@ -55,7 +56,11 @@ router.post('/session', async (req, res) => {
             userAgent,
             seekOffset: seekOffset || 0,
             hwEncoder: settings.hwEncoder || 'software',
-            maxResolution: settings.maxResolution || '1080p',
+            // The caller may ask for a lower ceiling than the setting.
+            // The picture-less-channel fallback does: this box has two
+            // cores and no GPU, and encoding 1080p50 on it runs at 185%
+            // CPU, which the picture shows as stutter.
+            maxResolution: maxResolution || settings.maxResolution || '1080p',
             quality: settings.quality || 'medium',
             audioMixPreset: settings.audioMixPreset || 'auto', // Audio downmix preset
             // Upscaling options
