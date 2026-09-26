@@ -11,6 +11,13 @@ function isMobile() {
 // How many times a failing live stream is chased before the picture is
 // given back to the viewer with an explanation. Each attempt backs off,
 // so this is about eight seconds of trying, not eight instant retries.
+// How long a channel may take to show anything before the viewer is told
+// something is wrong. Measured on the Fire TV against a provider whose
+// domain had stopped resolving: one attempt hung for 66 seconds, and
+// hls.js retries internally without reporting a thing, so the spinner
+// turned for minutes with nothing said.
+const START_TIMEOUT_MS = 14000;
+
 const NETWORK_MAX_RETRIES = 6;
 
 // After those, it keeps trying at a pace that does not hammer a provider
@@ -275,6 +282,11 @@ class VideoPlayer {
 
         this.video.addEventListener('canplay', () => {
             this.loadingSpinner?.classList.remove('show');
+            clearTimeout(this.startTimer);
+        });
+
+        this.video.addEventListener('playing', () => {
+            clearTimeout(this.startTimer);
         });
 
         // Nothing was listening for the element giving up on its own. A
@@ -874,6 +886,7 @@ class VideoPlayer {
             // clean slate -- which is why it has to come first.
             this.stop();
             this.currentChannel = channel;
+            this.armStartTimeout();
             this.updateTranscodeStatus('hidden');
 
             // Hide "select a channel" overlay
@@ -1241,6 +1254,51 @@ class VideoPlayer {
      * of them belongs here rather than in whichever block was in front of
      * me at the time.
      */
+    /**
+     * Say something when a channel never starts.
+     *
+     * hls.js retries a playlist it cannot load on its own schedule and
+     * reports nothing until it has exhausted them. Against a provider
+     * whose domain had stopped resolving, one attempt took 66 seconds on
+     * this device, so the spinner turned for minutes and the app looked
+     * broken while it was the provider that had gone.
+     *
+     * The server is asked what it makes of the same URL, because it fails
+     * in half a second where the device takes a minute, and it can tell a
+     * host that does not resolve from one that refuses us. That is the
+     * difference between "your provider is gone" and "this channel is not
+     * working", and the viewer can act on the first.
+     */
+    armStartTimeout() {
+        clearTimeout(this.startTimer);
+        const channel = this.currentChannel;
+        const source = this.currentUrl;
+
+        this.startTimer = setTimeout(async () => {
+            // Started while we were waiting, or the viewer moved on
+            if (this.currentChannel !== channel) return;
+            if (this.video && !this.video.paused && this.video.readyState >= 3) return;
+
+            let reason = 'This channel did not start.';
+            try {
+                const res = await fetch('/api/proxy/stream?url='
+                    + encodeURIComponent(source || this.currentUrl), { method: 'GET' });
+                if (res.status === 502) {
+                    const body = await res.json().catch(() => ({}));
+                    if (body.unreachable) {
+                        reason = `Cannot reach ${body.host || 'the provider'}.`
+                            + ' The source is down or its address has changed.';
+                    }
+                }
+            } catch { /* the verdict below is still better than a spinner */ }
+
+            if (this.currentChannel !== channel) return;
+            console.log('[Player] Nothing playing after', START_TIMEOUT_MS, 'ms:', reason);
+            this.loadingSpinner?.classList.remove('show');
+            this.showError(reason);
+        }, START_TIMEOUT_MS);
+    }
+
     attachCommonHandlers(hls) {
         if (!hls) return hls;
         hls.on(Hls.Events.BUFFER_CODECS, (event, data) => this.checkVideoTrack(data));
@@ -1719,6 +1777,7 @@ class VideoPlayer {
         // A pending retry must not resurrect a channel the viewer has left,
         // and the watchdog must not treat a deliberate stop as a stall.
         clearTimeout(this.reloadTimer);
+        clearTimeout(this.startTimer);
         this.currentChannel = null;
         this.networkRetryCount = 0;
         this.isUsingProxy = false;

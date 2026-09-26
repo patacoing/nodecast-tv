@@ -398,3 +398,79 @@ describe('hls instances', () => {
         assert.match(fn.slice(0, 400), /BUFFER_CODECS/);
     });
 });
+
+/**
+ * A channel that never starts.
+ *
+ * Found in the field: the provider's domain lost its A record, so nothing
+ * resolved. hls.js retries a playlist it cannot load on its own schedule
+ * and reports nothing until those are exhausted -- one attempt took 66
+ * seconds on the Fire TV -- so the spinner turned for minutes and the app
+ * looked broken while it was the provider that had gone.
+ */
+describe('a channel that never starts', () => {
+    const ARM = lift('armStartTimeout');
+
+    function harness(proxyAnswer) {
+        const acts = [];
+        let fire = null;
+        const p = new (new Function('console', 'setTimeout', 'clearTimeout',
+            'START_TIMEOUT_MS', 'fetch', `
+            return class S {
+                ${ARM}
+            };`)(
+            { log() { } },
+            (fn) => { fire = fn; return 7; },
+            () => { acts.push('cleared'); },
+            14000,
+            async () => proxyAnswer
+        ))();
+        p.currentChannel = { name: 'CANAL+ HD' };
+        p.currentUrl = 'http://gone.example/live/1.m3u8';
+        p.video = { paused: true, readyState: 0 };
+        p.loadingSpinner = { classList: { remove: () => acts.push('spinner off') } };
+        p.showError = (m) => acts.push('message:' + m);
+        p.armStartTimeout();
+        return { p, acts, fire: () => fire() };
+    }
+
+    const unreachable = {
+        status: 502,
+        json: async () => ({ unreachable: true, cause: 'ENOTFOUND', host: 'gone.example' })
+    };
+    const other = { status: 500, json: async () => ({ error: 'fetch failed' }) };
+
+    it('names the host when the server cannot reach it either', async () => {
+        const h = harness(unreachable);
+        await h.fire();
+        assert.equal(h.acts.includes('spinner off'), true);
+        assert.match(h.acts.find(a => a.startsWith('message:')),
+            /Cannot reach gone\.example/);
+    });
+
+    it('still says something when the reason is not known', async () => {
+        const h = harness(other);
+        await h.fire();
+        assert.match(h.acts.find(a => a.startsWith('message:')), /did not start/);
+    });
+
+    it('says nothing if the picture arrived while it waited', async () => {
+        const h = harness(unreachable);
+        h.p.video = { paused: false, readyState: 4 };
+        await h.fire();
+        assert.deepEqual(h.acts.filter(a => a.startsWith('message:')), []);
+    });
+
+    it('says nothing if the viewer has changed channel', async () => {
+        const h = harness(unreachable);
+        h.p.currentChannel = { name: 'M6' };
+        await h.fire();
+        assert.deepEqual(h.acts.filter(a => a.startsWith('message:')), []);
+    });
+
+    it('survives the server being unreachable too', async () => {
+        const h = harness(null);   // fetch resolves to null -> reading .status throws
+        await h.fire();
+        assert.match(h.acts.find(a => a.startsWith('message:')) || '', /did not start/);
+    });
+});

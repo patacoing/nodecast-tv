@@ -770,9 +770,20 @@ router.get('/stream', async (req, res) => {
         }
     }
 
-    // All retries failed
+    // All retries failed. "fetch failed" on its own tells nobody
+    // anything: the cause is nested, and the difference between a host
+    // that does not resolve and one that refuses us is exactly what the
+    // player needs in order to say something true to the viewer.
     if (!res.headersSent) {
-        res.status(500).json({ error: lastError?.message || 'Stream proxy failed after retries' });
+        const cause = lastError?.cause?.code || lastError?.code || null;
+        const unreachable = ['ENOTFOUND', 'EAI_AGAIN', 'ECONNREFUSED',
+            'ETIMEDOUT', 'EHOSTUNREACH', 'ENETUNREACH'].includes(cause);
+        res.status(unreachable ? 502 : 500).json({
+            error: lastError?.message || 'Stream proxy failed after retries',
+            cause,
+            unreachable,
+            host: (() => { try { return new URL(req.query.url).host; } catch { return null; } })()
+        });
     }
 });
 
