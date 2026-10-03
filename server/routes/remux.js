@@ -1,4 +1,5 @@
 const express = require('express');
+const { hlsInputArgs } = require('../services/hlsInput');
 const router = express.Router();
 const { spawn } = require('child_process');
 const db = require('../db');
@@ -51,6 +52,7 @@ router.get('/', async (req, res) => {
         '-reconnect_delay_max', '5',
         // Prevent Range/HEAD requests that some providers reject with 405
         '-seekable', '0',
+        ...hlsInputArgs(url),
         '-i', url,
         // STRICT MAPPING: Only map video and audio, ignore subtitles/data/attachments
         // This prevents remux failure when source container has incompatible subtitle tracks (e.g. MKV -> MP4)

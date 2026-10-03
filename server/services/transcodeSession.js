@@ -13,6 +13,7 @@
  */
 
 const { spawn } = require('child_process');
+const { hlsInputArgs } = require('./hlsInput');
 const path = require('path');
 const fs = require('fs').promises;
 const crypto = require('crypto');
@@ -203,7 +204,7 @@ class TranscodeSession extends EventEmitter {
             '-reconnect_delay_max', '3'
         );
 
-        args.push('-i', this.url);
+        args.push(...hlsInputArgs(this.url), '-i', this.url);
 
         // Add seek offset if specified (as output option to avoid Range requests)
         if (this.options.seekOffset > 0) {

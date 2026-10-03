@@ -1,4 +1,5 @@
 const express = require('express');
+const { hlsInputArgs } = require('../services/hlsInput');
 const router = express.Router();
 const { spawn } = require('child_process');
 
@@ -38,6 +39,7 @@ function probeStream(url, ffprobePath, userAgent = null, timeout = 15000) {
             '-show_format',
             '-probesize', '5000000',
             '-analyzeduration', '5000000',
+            ...hlsInputArgs(url),
             url
         ];
 

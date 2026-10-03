@@ -1,4 +1,5 @@
 const express = require('express');
+const { hlsInputArgs } = require('../services/hlsInput');
 const router = express.Router();
 const { spawn } = require('child_process');
 const path = require('path');
@@ -212,6 +213,7 @@ router.get('/', async (req, res) => {
         '-reconnect_delay_max', '3',
         // Prevent Range/HEAD requests that some providers reject with 405
         '-seekable', '0',
+        ...hlsInputArgs(url),
         '-i', url,
         // Map only first video and audio stream (avoid subtitle streams causing issues)
         '-map', '0:v:0',
