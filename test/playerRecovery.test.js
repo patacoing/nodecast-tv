@@ -295,14 +295,16 @@ describe('the stall watchdog', () => {
  * Measured on LIGUE 1+ 4: one source buffer, mp4a.40.2, 0x0 pixels, zero
  * frames decoded, readyState 4 -- the element had everything it wanted.
  */
-describe('a stream with no video track', () => {
+describe('a stream missing a track', () => {
     const CHECK = lift('checkVideoTrack');
+    const RESCUE = lift('rescueByTranscoding');
 
     function harness() {
         const acts = [];
         const p = new (new Function('console', `
             return class C {
                 ${CHECK}
+                ${RESCUE}
             };`)({ log() { }, error() { } }))();
         p.currentChannel = { name: 'LIGUE 1+ 4' };
         p.currentUrl = 'http://provider/live/35448.m3u8';
@@ -310,7 +312,8 @@ describe('a stream with no video track', () => {
         p.showError = (m) => acts.push('error');
         p.playHls = (u) => acts.push('playHls:' + u);
         p.startTranscodeSession = (url, o) => {
-            acts.push('transcode:' + o.videoMode);
+            acts.push('transcode:' + o.videoMode
+                + (o.maxResolution ? '@' + o.maxResolution : ''));
             return Promise.resolve('/hls/session/42.m3u8');
         };
         return { p, acts };
@@ -320,7 +323,7 @@ describe('a stream with no video track', () => {
         const h = harness();
         h.p.checkVideoTrack({ audio: { codec: 'mp4a.40.2' } });
         await new Promise(r => setImmediate(r));
-        assert.deepEqual(h.acts, ['status:Transcoding (Video)', 'transcode:encode',
+        assert.deepEqual(h.acts, ['status:Transcoding (Video)', 'transcode:encode@720p',
             'playHls:/hls/session/42.m3u8']);
     });
 
@@ -344,6 +347,34 @@ describe('a stream with no video track', () => {
         const h = harness();
         h.p.checkVideoTrack({ audio: {}, video: { codec: 'avc1.64001f' } });
         assert.deepEqual(h.acts, []);
+        assert.equal(h.p.hasVideoTrack, true);
+    });
+
+    it('converts only the audio when the picture is fine', async () => {
+        // Measured on CANAL+ SPORT: H.264 video, E-AC3 audio. MSE on this
+        // device does not support E-AC3 and hls.js will not demux it out
+        // of MPEG-TS, so the video buffer arrived alone and the channel
+        // played silent. Copying the picture costs nothing; re-encoding
+        // 1080p on two cores does not fit in real time.
+        const h = harness();
+        h.p.checkVideoTrack({ video: { codec: 'avc1.64002a' } });
+        await new Promise(r => setImmediate(r));
+        assert.deepEqual(h.acts, ['status:Transcoding (Audio)', 'transcode:copy',
+            'playHls:/hls/session/42.m3u8']);
+    });
+
+    it('does not cap the resolution when it is only converting audio', async () => {
+        const h = harness();
+        h.p.checkVideoTrack({ video: {} });
+        await new Promise(r => setImmediate(r));
+        assert.equal(h.acts.includes('transcode:copy@720p'), false,
+            'copying the picture needs no ceiling');
+    });
+
+    it('still counts the picture as present when only audio is missing', () => {
+        // Or the watchdog would stand down on a channel that has a picture
+        const h = harness();
+        h.p.checkVideoTrack({ video: {} });
         assert.equal(h.p.hasVideoTrack, true);
     });
 

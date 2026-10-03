@@ -695,6 +695,27 @@ class VideoPlayer {
                             break;
                     }
                 } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                    // A codec the demuxer will not read is not something
+                    // detaching the media element can fix: it is a property
+                    // of the stream, and it repeats on every fragment for
+                    // as long as the channel is on. Measured on CANAL+
+                    // SPORT: 6547 of these in ninety seconds, each one
+                    // driving recoverMediaError(), which tears the element
+                    // down and builds it again -- the frame counter reset
+                    // twice a minute and the viewer saw the picture cut.
+                    //
+                    // rescueByTranscoding is already on its way from the
+                    // codec report; this just stops the thrashing while it
+                    // gets there.
+                    if (/unsupported/i.test(data.reason || '')) {
+                        if (!this.unsupportedLogged) {
+                            this.unsupportedLogged = true;
+                            console.log('[HLS] Stream carries something the demuxer will not read:',
+                                data.reason);
+                        }
+                        return;
+                    }
+
                     // Non-fatal media error - try to recover with cooldown to prevent loops
                     const now = Date.now();
                     const timeSinceLastRecovery = now - (this.lastRecoveryAttempt || 0);
@@ -1310,24 +1331,50 @@ class VideoPlayer {
         // to watch at all, and the watchdog needs to know: a stream with
         // no video decodes no frames for ever, which is not a stall.
         this.hasVideoTrack = !!tracks?.video;
-        if (!tracks || tracks.video || !tracks.audio) return;
+        if (!tracks) return;
+
+        // Picture but no sound is the same fault the other way round, and
+        // it is the common one: most of this provider's channels carry
+        // E-AC3, which this WebView's MSE does not support and hls.js
+        // cannot demux out of MPEG-TS. Measured on CANAL+ SPORT: the video
+        // buffer alone, avc1.64002a, and 6547 "Unsupported EC-3 in M2TS
+        // found" in ninety seconds.
+        //
+        // The video is left alone here -- copying it costs nothing, where
+        // re-encoding 1080p on this two-core box does not fit in real
+        // time. Only the audio is converted.
+        if (tracks.video && !tracks.audio) {
+            return this.rescueByTranscoding('no audio track', { videoMode: 'copy' });
+        }
+        if (!tracks.video && tracks.audio) {
+            // 720p: this is a rescue, and it has to re-encode the picture
+            return this.rescueByTranscoding('no video track',
+                { videoMode: 'encode', maxResolution: '720p' });
+        }
+    }
+
+    /**
+     * Hand the channel to a transcode session, once.
+     *
+     * @param {string} why      for the log
+     * @param {object} options  passed to the session
+     */
+    rescueByTranscoding(why, options) {
         // Once per channel. Keyed on the channel rather than on the URL
         // because the URL becomes the session's own playlist: if the
-        // transcode comes back without a video track too, matching on the
-        // URL would never match and this would start sessions for ever.
+        // transcode comes back short of a track too, matching on the URL
+        // would never match and this would start sessions for ever.
         if (!this.currentChannel || this.transcodeFallbackFor === this.currentChannel) return;
         this.transcodeFallbackFor = this.currentChannel;
 
         // The source is kept separately, to notice a viewer who has
         // changed channel while the session was starting
         const source = this.currentUrl;
-        console.log('[Player] No video track from this stream, transcoding it');
-        this.updateTranscodeStatus('transcoding', 'Transcoding (Video)');
+        console.log(`[Player] ${why} from this stream, transcoding it`);
+        this.updateTranscodeStatus('transcoding',
+            options.videoMode === 'copy' ? 'Transcoding (Audio)' : 'Transcoding (Video)');
 
-        // 720p, not whatever the setting says. This is a rescue, and it
-        // runs on two cores with no GPU: 1080p50 saturates them and the
-        // picture stutters. A Fire TV Stick is a 1080p device anyway.
-        this.startTranscodeSession(source, { videoMode: 'encode', maxResolution: '720p' })
+        this.startTranscodeSession(source, options)
             .then(playlistUrl => {
                 // The viewer may have moved on while the session started
                 if (this.currentUrl !== source) return;
@@ -1783,6 +1830,7 @@ class VideoPlayer {
         this.isUsingProxy = false;
         this.hasVideoTrack = undefined;
         this.transcodeFallbackFor = null;
+        this.unsupportedLogged = false;
 
         if (this.hls) {
             this.hls.destroy();
