@@ -299,13 +299,24 @@ describe('a stream missing a track', () => {
     const CHECK = lift('checkVideoTrack');
     const RESCUE = lift('rescueByTranscoding');
 
+    const RETRY = lift('retryRescue');
+
     function harness() {
         const acts = [];
-        const p = new (new Function('console', `
+        let timerFn = null;
+        const p = new (new Function('console', 'setTimeout', 'clearTimeout',
+            'RESCUE_RETRY_MS', 'RESCUE_MAX_ATTEMPTS', `
             return class C {
                 ${CHECK}
                 ${RESCUE}
-            };`)({ log() { }, error() { } }))();
+                ${RETRY}
+            };`)(
+            { log() { }, error() { } },
+            (fn) => { timerFn = fn; return 1; },
+            () => { },
+            20000, 3
+        ))();
+        p.__fire = () => timerFn && timerFn();
         p.currentChannel = { name: 'LIGUE 1+ 4' };
         p.currentUrl = 'http://provider/live/35448.m3u8';
         p.updateTranscodeStatus = (m, t) => acts.push('status:' + (t || m));
@@ -316,7 +327,7 @@ describe('a stream missing a track', () => {
                 + (o.maxResolution ? '@' + o.maxResolution : ''));
             return Promise.resolve('/hls/session/42.m3u8');
         };
-        return { p, acts };
+        return { p, acts, fire: () => p.__fire() };
     }
 
     it('sends a picture-less stream to the server to be transcoded', async () => {
@@ -378,13 +389,50 @@ describe('a stream missing a track', () => {
         assert.equal(h.p.hasVideoTrack, true);
     });
 
-    it('does not transcode the same stream twice', async () => {
+    it('retries when the transcode comes back without the track either', async () => {
+        // Found on CANAL + FHD, which had sound twenty minutes earlier:
+        // the PMT announced h264 and nothing else. ffmpeg fixes its output
+        // streams at startup, so a session begun during a gap stays silent
+        // for its whole life even after the feed recovers.
+        const h = harness();
+        h.p.checkVideoTrack({ video: {} });
+        await new Promise(r => setImmediate(r));
+        h.acts.length = 0;
+
+        h.p.checkVideoTrack({ video: {} });          // the session, still mute
+        assert.match(h.acts.join(), /status:Looking for sound/);
+
+        h.fire();                                     // the retry comes due
+        await new Promise(r => setImmediate(r));
+        assert.equal(h.acts.some(a => a.startsWith('playHls')), true,
+            'must go back to the provider URL, not the session playlist');
+    });
+
+    it('gives up after a few tries and says the channel has no sound', () => {
+        const h = harness();
+        h.p.checkVideoTrack({ video: {} });
+        for (let i = 0; i < 4; i++) h.p.checkVideoTrack({ video: {} });
+        assert.match(h.acts.join(), /status:No sound on this channel/);
+    });
+
+    it('forgets the trouble once both tracks turn up', () => {
+        const h = harness();
+        h.p.checkVideoTrack({ video: {} });
+        h.p.checkVideoTrack({ video: {} });
+        h.p.checkVideoTrack({ video: {}, audio: {} });
+        assert.equal(h.p.rescueAttempts, 0);
+    });
+
+    it('does not start a second session on top of the first', async () => {
+        // A second report means the session came back short too, which is
+        // handled by a delayed retry -- never by stacking another session
+        // on the one already running.
         const h = harness();
         h.p.checkVideoTrack({ audio: {} });
         await new Promise(r => setImmediate(r));
         h.acts.length = 0;
         h.p.checkVideoTrack({ audio: {} });
-        assert.deepEqual(h.acts, [], 'a second report must not start another session');
+        assert.deepEqual(h.acts.filter(a => a.startsWith('transcode:')), []);
     });
 
     it('drops the result if the viewer has changed channel meanwhile', async () => {

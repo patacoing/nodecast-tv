@@ -4283,6 +4283,12 @@ kbd {
   .transcode-status.reconnecting { animation: none; }
 }
 
+/* The picture is fine and only the sound is missing, so this is a note
+   beside the player rather than an overlay across it. */
+.transcode-status.silent {
+  background: rgba(255, 153, 0, 0.85);
+}
+
 .transcode-status.remuxing {
   background: rgba(255, 153, 0, 0.8);
   /* Orange for Remux */

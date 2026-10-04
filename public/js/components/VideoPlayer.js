@@ -18,6 +18,12 @@ function isMobile() {
 // turned for minutes with nothing said.
 const START_TIMEOUT_MS = 14000;
 
+// A transcode that comes back missing the same track means the source is
+// not carrying it. A live feed that drops its audio usually gets it back,
+// so it is worth asking again a few times before telling the viewer.
+const RESCUE_RETRY_MS = 20000;
+const RESCUE_MAX_ATTEMPTS = 3;
+
 const NETWORK_MAX_RETRIES = 6;
 
 // After those, it keeps trying at a pace that does not hammer a provider
@@ -1333,6 +1339,13 @@ class VideoPlayer {
         this.hasVideoTrack = !!tracks?.video;
         if (!tracks) return;
 
+        // Both tracks: whatever was wrong is not wrong any more
+        if (tracks.video && tracks.audio) {
+            this.rescueAttempts = 0;
+            clearTimeout(this.rescueTimer);
+            return;
+        }
+
         // Picture but no sound is the same fault the other way round, and
         // it is the common one: most of this provider's channels carry
         // E-AC3, which this WebView's MSE does not support and hls.js
@@ -1354,22 +1367,38 @@ class VideoPlayer {
     }
 
     /**
-     * Hand the channel to a transcode session, once.
+     * Hand the channel to a transcode session.
+     *
+     * Keyed on the channel rather than on the URL, because the URL becomes
+     * the session's own playlist: matching on it would never match again.
+     *
+     * A second report for the same channel means the transcode came back
+     * short of the track too, and that is a different situation -- the
+     * source itself is not carrying it. Found on CANAL + FHD, which had
+     * sound twenty minutes earlier and then stopped: the PMT announced one
+     * elementary stream, h264, and nothing else. ffmpeg fixes its output
+     * streams when it starts, so a session begun during a gap like that
+     * stays silent for the rest of its life even after the feed recovers.
+     * Retrying a few times turns a provider's hiccup back into a hiccup
+     * rather than something only zapping away and back will clear.
      *
      * @param {string} why      for the log
      * @param {object} options  passed to the session
      */
     rescueByTranscoding(why, options) {
-        // Once per channel. Keyed on the channel rather than on the URL
-        // because the URL becomes the session's own playlist: if the
-        // transcode comes back short of a track too, matching on the URL
-        // would never match and this would start sessions for ever.
-        if (!this.currentChannel || this.transcodeFallbackFor === this.currentChannel) return;
+        if (!this.currentChannel) return;
+
+        if (this.transcodeFallbackFor === this.currentChannel) {
+            return this.retryRescue(why, options);
+        }
         this.transcodeFallbackFor = this.currentChannel;
+        this.rescueAttempts = 0;
 
         // The source is kept separately, to notice a viewer who has
-        // changed channel while the session was starting
+        // changed channel while the session was starting -- and to retry
+        // from, since currentUrl becomes the session's own playlist.
         const source = this.currentUrl;
+        this.rescueSource = source;
         console.log(`[Player] ${why} from this stream, transcoding it`);
         this.updateTranscodeStatus('transcoding',
             options.videoMode === 'copy' ? 'Transcoding (Audio)' : 'Transcoding (Video)');
@@ -1397,6 +1426,41 @@ class VideoPlayer {
                 console.error('[Player] Could not transcode:', err.message);
                 this.showError('This channel needs transcoding and it failed.');
             });
+    }
+
+    /**
+     * The transcode came back missing the same track, so the source is not
+     * carrying it. Try again a few times, then say so and stop.
+     */
+    retryRescue(why, options) {
+        const channel = this.currentChannel;
+        this.rescueAttempts = (this.rescueAttempts || 0) + 1;
+
+        if (this.rescueAttempts > RESCUE_MAX_ATTEMPTS) {
+            // The picture is fine when it is the sound that is missing, so
+            // this must not be an overlay across the player -- it is a
+            // note beside it.
+            console.log('[Player] Source is not carrying it:', why);
+            this.updateTranscodeStatus('silent',
+                options.videoMode === 'copy' ? 'No sound on this channel'
+                                             : 'No picture on this channel');
+            return;
+        }
+
+        console.log(`[Player] Transcode still has ${why},`
+            + ` retrying (${this.rescueAttempts}/${RESCUE_MAX_ATTEMPTS})`);
+        this.updateTranscodeStatus('reconnecting', 'Looking for sound…');
+
+        clearTimeout(this.rescueTimer);
+        this.rescueTimer = setTimeout(() => {
+            if (this.currentChannel !== channel) return;
+            // Let the next codec report start a session again
+            this.transcodeFallbackFor = null;
+            const source = this.rescueSource;
+            if (!source) return;
+            this.currentUrl = source;
+            this.playHls(source);
+        }, RESCUE_RETRY_MS);
     }
 
     startStallWatchdog() {
@@ -1831,6 +1895,9 @@ class VideoPlayer {
         this.hasVideoTrack = undefined;
         this.transcodeFallbackFor = null;
         this.unsupportedLogged = false;
+        this.rescueSource = null;
+        this.rescueAttempts = 0;
+        clearTimeout(this.rescueTimer);
 
         if (this.hls) {
             this.hls.destroy();
