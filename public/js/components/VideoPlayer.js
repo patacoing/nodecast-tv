@@ -22,6 +22,11 @@ const START_TIMEOUT_MS = 14000;
 // not carrying it. A live feed that drops its audio usually gets it back,
 // so it is worth asking again a few times before telling the viewer.
 const RESCUE_RETRY_MS = 20000;
+
+// How often a channel that would not start is tried again. Long enough not
+// to hammer a provider that is already refusing us -- this account allows
+// two connections in total -- short enough that a glitch passes unnoticed.
+const SOURCE_RETRY_MS = 20000;
 const RESCUE_MAX_ATTEMPTS = 3;
 
 const NETWORK_MAX_RETRIES = 6;
@@ -293,6 +298,9 @@ class VideoPlayer {
 
         this.video.addEventListener('playing', () => {
             clearTimeout(this.startTimer);
+            clearTimeout(this.sourceRetryTimer);
+            // The verdict was shown over the player; it is wrong now
+            if (this.currentChannel) this.overlay?.classList.add('hidden');
         });
 
         // Nothing was listening for the element giving up on its own. A
@@ -697,7 +705,17 @@ class VideoPlayer {
                             this.hls.recoverMediaError();
                             break;
                         default:
-                            this.stop();
+                            // stop() used to be the answer here, and it
+                            // takes the channel, the hls instance and the
+                            // watchdog down with it: after that nothing
+                            // could bring the picture back and the viewer
+                            // got no word either. A fatal error of a kind
+                            // this switch does not know about is still a
+                            // channel worth trying again.
+                            console.warn('[HLS] Fatal', data.details, '- trying again');
+                            this.showError('Playback stopped. Still trying…');
+                            this.retryFromSource(this.currentChannel,
+                                this.rescueSource || this.currentUrl);
                             break;
                     }
                 } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
@@ -1322,8 +1340,50 @@ class VideoPlayer {
             if (this.currentChannel !== channel) return;
             console.log('[Player] Nothing playing after', START_TIMEOUT_MS, 'ms:', reason);
             this.loadingSpinner?.classList.remove('show');
-            this.showError(reason);
+            this.showError(reason + ' Still trying…');
+
+            // And keep trying. Saying what went wrong and then stopping is
+            // how this version left CANAL+ SPORT HD dead: the provider
+            // answered 404 for the playlist once -- it was serving it again
+            // a minute later -- and the picture never came back because
+            // nothing was still asking for it. A message is information,
+            // not a conclusion.
+            this.retryFromSource(channel, source);
         }, START_TIMEOUT_MS);
+    }
+
+    /**
+     * Go back to the provider's own URL and try again, on a slow cadence,
+     * for as long as the viewer stays on the channel.
+     *
+     * Direct, not proxied. A run of trouble can leave isUsingProxy set,
+     * and on this account the proxy costs the second of two connections,
+     * so starting over through it makes the next attempt worse rather
+     * than better.
+     */
+    retryFromSource(channel, source) {
+        clearTimeout(this.sourceRetryTimer);
+        if (!source) return;
+
+        this.sourceRetryTimer = setTimeout(() => {
+            if (this.currentChannel !== channel) return;
+            if (this.video && !this.video.paused && this.video.readyState >= 3) return;
+
+            console.log('[Player] Trying the channel again from source');
+            this.isUsingProxy = false;
+            this.networkRetryCount = 0;
+            // A clean attempt: the channel may well need transcoding, and
+            // it has to be allowed to decide that again from scratch
+            // rather than resume a retry count from the last go.
+            this.transcodeFallbackFor = null;
+            this.rescueAttempts = 0;
+            clearTimeout(this.rescueTimer);
+            this.currentUrl = source;
+            this.playHls(source);
+            // Which re-arms the verdict, so this comes round again if it
+            // is still not playing
+            this.armStartTimeout();
+        }, SOURCE_RETRY_MS);
     }
 
     attachCommonHandlers(hls) {
@@ -1889,6 +1949,7 @@ class VideoPlayer {
         // and the watchdog must not treat a deliberate stop as a stall.
         clearTimeout(this.reloadTimer);
         clearTimeout(this.startTimer);
+        clearTimeout(this.sourceRetryTimer);
         this.currentChannel = null;
         this.networkRetryCount = 0;
         this.isUsingProxy = false;

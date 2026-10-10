@@ -509,6 +509,7 @@ describe('a channel that never starts', () => {
         p.video = { paused: true, readyState: 0 };
         p.loadingSpinner = { classList: { remove: () => acts.push('spinner off') } };
         p.showError = (m) => acts.push('message:' + m);
+        p.retryFromSource = () => acts.push('retryFromSource');
         p.armStartTimeout();
         return { p, acts, fire: () => fire() };
     }
@@ -530,7 +531,10 @@ describe('a channel that never starts', () => {
     it('still says something when the reason is not known', async () => {
         const h = harness(other);
         await h.fire();
-        assert.match(h.acts.find(a => a.startsWith('message:')), /did not start/);
+        const msg = h.acts.find(a => a.startsWith('message:'));
+        assert.match(msg, /did not start/);
+        assert.match(msg, /Still trying/, 'the verdict must not read as final');
+        assert.equal(h.acts.includes('retryFromSource'), true);
     });
 
     it('says nothing if the picture arrived while it waited', async () => {
@@ -551,5 +555,114 @@ describe('a channel that never starts', () => {
         const h = harness(null);   // fetch resolves to null -> reading .status throws
         await h.fire();
         assert.match(h.acts.find(a => a.startsWith('message:')) || '', /did not start/);
+    });
+});
+
+/**
+ * Keeping at it after a verdict.
+ *
+ * CANAL+ SPORT HD stopped mid-match and never came back. The provider had
+ * answered 404 for the playlist once -- it was serving it again a minute
+ * later, aac and h264, nothing wrong with the channel -- but the player
+ * said "This channel did not start" and stopped there. A message is
+ * information, not a conclusion.
+ */
+describe('keeping at it after a verdict', () => {
+    const RETRY = lift('retryFromSource');
+
+    function harness() {
+        const acts = [];
+        let fire = null;
+        const p = new (new Function('console', 'setTimeout', 'clearTimeout',
+            'SOURCE_RETRY_MS', `
+            return class R {
+                ${RETRY}
+            };`)(
+            { log() { }, warn() { } },
+            (fn) => { fire = fn; return 3; },
+            () => { },
+            20000
+        ))();
+        const channel = { name: 'CANAL+ SPORT HD' };
+        p.currentChannel = channel;
+        p.video = { paused: true, readyState: 0 };
+        p.isUsingProxy = true;
+        p.networkRetryCount = 5;
+        p.transcodeFallbackFor = channel;
+        p.rescueAttempts = 2;
+        p.playHls = (u) => acts.push('playHls:' + u);
+        p.armStartTimeout = () => acts.push('rearm');
+        return { p, acts, channel, fire: () => fire && fire() };
+    }
+
+    const SOURCE = 'http://provider/live/2192.m3u8';
+
+    it('tries the channel again instead of stopping at the message', () => {
+        const h = harness();
+        h.p.retryFromSource(h.channel, SOURCE);
+        h.fire();
+        assert.deepEqual(h.acts, ['playHls:' + SOURCE, 'rearm']);
+    });
+
+    it('goes back to a direct connection', () => {
+        // A run of trouble leaves isUsingProxy set, and on this account the
+        // proxy costs the second of two connections
+        const h = harness();
+        h.p.retryFromSource(h.channel, SOURCE);
+        h.fire();
+        assert.equal(h.p.isUsingProxy, false);
+        assert.equal(h.p.networkRetryCount, 0);
+    });
+
+    it('lets the channel decide about transcoding from scratch', () => {
+        const h = harness();
+        h.p.retryFromSource(h.channel, SOURCE);
+        h.fire();
+        assert.equal(h.p.transcodeFallbackFor, null);
+        assert.equal(h.p.rescueAttempts, 0);
+    });
+
+    it('re-arms the verdict so it comes round again', () => {
+        // Otherwise one retry is all there is, which is barely better
+        const h = harness();
+        h.p.retryFromSource(h.channel, SOURCE);
+        h.fire();
+        assert.equal(h.acts.includes('rearm'), true);
+    });
+
+    it('stands down if the viewer changed channel', () => {
+        const h = harness();
+        h.p.retryFromSource(h.channel, SOURCE);
+        h.p.currentChannel = { name: 'M6' };
+        h.fire();
+        assert.deepEqual(h.acts, []);
+    });
+
+    it('stands down if the picture came back on its own', () => {
+        const h = harness();
+        h.p.retryFromSource(h.channel, SOURCE);
+        h.p.video = { paused: false, readyState: 4 };
+        h.fire();
+        assert.deepEqual(h.acts, []);
+    });
+
+    it('does nothing without a source to go back to', () => {
+        const h = harness();
+        h.p.retryFromSource(h.channel, null);
+        h.fire();                      // no timer was armed at all
+        assert.deepEqual(h.acts, []);
+    });
+
+    it('no longer answers an unknown fatal error by stopping', () => {
+        // stop() took the channel, the hls instance and the watchdog with
+        // it, so nothing could bring the picture back and the viewer got
+        // no word either
+        const src = fs.readFileSync(path.join(__dirname, '..',
+            'public', 'js', 'components', 'VideoPlayer.js'), 'utf8');
+        const at = src.indexOf('default:');
+        const branch = src.slice(at, at + 1200);
+        assert.equal(/this\.stop\(\);/.test(branch), false,
+            'the default branch must not stop playback outright');
+        assert.match(branch, /retryFromSource/);
     });
 });
