@@ -204,6 +204,8 @@ describe('the stall watchdog', () => {
         ))(v);
 
         p.currentChannel = { name: 'TF1' };
+        p.viewerPaused = opts.viewerPaused ?? false;
+        p.retryFromSource = () => acts.push('retryFromSource');
         p.hls = opts.noHls ? null : {
             recoverMediaError: () => acts.push('recoverMediaError'),
             stopLoad: () => acts.push('stopLoad'),
@@ -279,10 +281,35 @@ describe('the stall watchdog', () => {
     });
 
     it('leaves a deliberately paused channel alone', () => {
-        const h = harness();
+        const h = harness({ viewerPaused: true });
         h.v.paused = true;
         h.tick(30);
         assert.deepEqual(h.acts, []);
+    });
+
+    it('restarts a channel that paused without being asked', () => {
+        // How CANAL+ SPORT HD sat frozen: playback died into a paused
+        // element, and the watchdog stood down on any paused element on
+        // the reasoning that a pause is not a stall
+        const h = harness();
+        h.v.paused = true;
+        h.tick(7);
+        assert.equal(h.acts.includes('play'), true, 'must try playing again');
+    });
+
+    it('goes back to the source when playing again does not take', () => {
+        const h = harness();
+        h.v.paused = true;          // stays paused however often play() is called
+        h.tick(7);
+        assert.equal(h.acts.includes('retryFromSource'), true);
+    });
+
+    it('does not restart a channel the viewer paused, however long', () => {
+        const h = harness({ viewerPaused: true });
+        h.v.paused = true;
+        h.tick(60);
+        assert.equal(h.acts.includes('retryFromSource'), false);
+        assert.equal(h.acts.includes('play'), false);
     });
 });
 

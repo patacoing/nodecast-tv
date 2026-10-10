@@ -236,11 +236,20 @@ class VideoPlayer {
         this.loadingSpinner?.classList.remove('show');
         this.controlsOverlay?.classList.add('hidden');
 
-        // Play/Pause toggle
+        // Play/Pause toggle.
+        //
+        // Whether the viewer asked for the pause is recorded, because the
+        // stall watchdog has to tell the two apart. It stood down on any
+        // paused element, on the reasoning that a pause is not a stall --
+        // and a live channel that dies into a paused element is exactly a
+        // stall, which is how CANAL+ SPORT HD sat frozen with nothing
+        // trying to bring it back.
         const togglePlay = () => {
             if (this.video.paused) {
+                this.viewerPaused = false;
                 this.video.play();
             } else {
+                this.viewerPaused = true;
                 this.video.pause();
             }
         };
@@ -931,6 +940,7 @@ class VideoPlayer {
             // clean slate -- which is why it has to come first.
             this.stop();
             this.currentChannel = channel;
+            this.viewerPaused = false;
             this.armStartTimeout();
             this.updateTranscodeStatus('hidden');
 
@@ -1529,9 +1539,26 @@ class VideoPlayer {
 
         this.stallTimer = setInterval(() => {
             const v = this.video;
-            if (!v || !this.currentChannel || v.paused || v.ended
-                || this.hasVideoTrack === false) {
+            const idle = !v || !this.currentChannel || v.ended
+                || this.hasVideoTrack === false
+                // A pause the viewer asked for is not a stall. One nobody
+                // asked for is the thing this exists to catch.
+                || (v.paused && this.viewerPaused);
+            if (idle) {
                 stalled = 0; step = 0; lastFrames = -1; lastTime = -1; return;
+            }
+
+            // Paused without being asked: there is nothing to nudge and no
+            // decoder to reset, the channel simply has to be started again.
+            if (v.paused) {
+                stalled++;
+                if (stalled < STALL_SECONDS) return;
+                stalled = 0;
+                console.log('[Player] Paused on its own, restarting the channel');
+                v.play().catch(() => { });
+                if (v.paused) this.retryFromSource(this.currentChannel,
+                    this.rescueSource || this.currentUrl);
+                return;
             }
 
             // Decoded frames, not the clock.
@@ -2056,6 +2083,7 @@ class VideoPlayer {
             case ' ':
             case 'k':
                 e.preventDefault();
+                this.viewerPaused = !this.video.paused;
                 this.video.paused ? this.video.play() : this.video.pause();
                 break;
             case 'f':
