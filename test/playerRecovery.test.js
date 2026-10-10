@@ -666,3 +666,31 @@ describe('keeping at it after a verdict', () => {
         assert.match(branch, /retryFromSource/);
     });
 });
+
+/**
+ * The idle overlay.
+ *
+ * showError leaves its message in place for good, and stop() reveals the
+ * overlay again without touching the text. So once anything had gone
+ * wrong, leaving the player showed that stale complaint where "Select a
+ * channel" belongs.
+ */
+describe('the idle overlay', () => {
+    const SRC = fs.readFileSync(path.join(__dirname, '..',
+        'public', 'js', 'components', 'VideoPlayer.js'), 'utf8');
+
+    it('is put back to its idle text when playback stops', () => {
+        const stop = SRC.slice(SRC.indexOf('    stop() {'));
+        const body = stop.slice(0, stop.indexOf('\n    }'));
+        assert.match(body, /resetOverlay\(\)/);
+        // and it must happen before the overlay is revealed again
+        assert.ok(body.indexOf('resetOverlay()') < body.indexOf("classList.remove('hidden')"),
+            'the text has to be restored before the overlay is shown');
+    });
+
+    it('restores the same wording the page ships with', () => {
+        const html = fs.readFileSync(path.join(__dirname, '..', 'public', 'index.html'), 'utf8');
+        const shipped = html.match(/<p>(Select a channel[^<]*)<\/p>/)[1];
+        assert.ok(SRC.includes(shipped), `reset text must match the page: ${shipped}`);
+    });
+});

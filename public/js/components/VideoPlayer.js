@@ -1969,6 +1969,7 @@ class VideoPlayer {
         this.video.load();
 
         // Reset UI to idle state
+        this.resetOverlay();
         this.overlay.classList.remove('hidden'); // Show "Select a channel"
         this.controlsOverlay?.classList.add('hidden'); // Hide controls
         this.loadingSpinner?.classList.remove('show');
@@ -2019,6 +2020,19 @@ class VideoPlayer {
     showError(message) {
         this.overlay.classList.remove('hidden');
         this.overlay.querySelector('.overlay-content').innerHTML = `<p style="color: var(--color-error);">${message}</p>`;
+    }
+
+    /**
+     * Put the overlay back to what it says when nothing is playing.
+     *
+     * showError leaves its message in place for good, and stop() reveals
+     * the overlay again without touching the text -- so once anything had
+     * gone wrong, leaving the player showed that stale complaint where
+     * "Select a channel" belongs.
+     */
+    resetOverlay() {
+        const content = this.overlay?.querySelector('.overlay-content');
+        if (content) content.innerHTML = '<p>Select a channel to start watching</p>';
     }
 
     /**
