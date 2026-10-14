@@ -1114,7 +1114,11 @@ class VideoPlayer {
             // 2. Known CORS-restricted domains (like Pluto TV)
             // Note: Xtream sources are NOT auto-proxied because many providers IP-lock streams
             const proxyRequiredDomains = ['pluto.tv'];
-            const needsProxy = this.settings.forceProxy || proxyRequiredDomains.some(domain => streamUrl.includes(domain));
+            // directUnreachable: this device has been shown it cannot
+            // reach the provider at all, so the server relays from the
+            // start rather than after two minutes of hanging.
+            const needsProxy = this.settings.forceProxy || this.directUnreachable
+                || proxyRequiredDomains.some(domain => streamUrl.includes(domain));
 
             this.isUsingProxy = needsProxy;
             const finalUrl = needsProxy ? this.getProxiedUrl(streamUrl) : streamUrl;
@@ -1338,6 +1342,33 @@ class VideoPlayer {
             try {
                 const res = await fetch('/api/proxy/stream?url='
                     + encodeURIComponent(source || this.currentUrl), { method: 'GET' });
+
+                // The server fetched what this device could not. That is
+                // not the provider being down, it is the path from here to
+                // it: measured on the Fire TV, every request to the
+                // provider's host hung for seventy to a hundred and thirty
+                // seconds and then failed, while the same host answered
+                // the server in seventy milliseconds -- same route out of
+                // the house, so the block sits upstream of the router.
+                //
+                // Relaying is exactly what the proxy is for, and the
+                // answer is already in hand here, so use it rather than
+                // retrying a direct connection that cannot work.
+                if (res.ok && !this.isUsingProxy) {
+                    console.log('[Player] The server can reach this and we cannot, relaying');
+                    // Remembered for the session: going back to a direct
+                    // connection would cost another two minutes of hanging
+                    // before failing the same way.
+                    this.directUnreachable = true;
+                    this.isUsingProxy = true;
+                    this.networkRetryCount = 0;
+                    const proxied = this.getProxiedUrl(source || this.currentUrl);
+                    this.loadingSpinner?.classList.add('show');
+                    this.playHls(proxied);
+                    this.armStartTimeout();
+                    return;
+                }
+
                 if (res.status === 502) {
                     const body = await res.json().catch(() => ({}));
                     if (body.unreachable) {
@@ -1380,7 +1411,9 @@ class VideoPlayer {
             if (this.video && !this.video.paused && this.video.readyState >= 3) return;
 
             console.log('[Player] Trying the channel again from source');
-            this.isUsingProxy = false;
+            // Direct unless this device has already been shown it cannot
+            // reach the provider, in which case the server relays.
+            this.isUsingProxy = !!this.directUnreachable;
             this.networkRetryCount = 0;
             // A clean attempt: the channel may well need transcoding, and
             // it has to be allowed to decide that again from scratch
@@ -1389,7 +1422,7 @@ class VideoPlayer {
             this.rescueAttempts = 0;
             clearTimeout(this.rescueTimer);
             this.currentUrl = source;
-            this.playHls(source);
+            this.playHls(this.isUsingProxy ? this.getProxiedUrl(source) : source);
             // Which re-arms the verdict, so this comes round again if it
             // is still not playing
             this.armStartTimeout();

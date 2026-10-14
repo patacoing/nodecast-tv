@@ -534,18 +534,43 @@ describe('a channel that never starts', () => {
         p.currentChannel = { name: 'CANAL+ HD' };
         p.currentUrl = 'http://gone.example/live/1.m3u8';
         p.video = { paused: true, readyState: 0 };
-        p.loadingSpinner = { classList: { remove: () => acts.push('spinner off') } };
+        p.loadingSpinner = { classList: { remove: () => acts.push('spinner off'),
+                                          add: () => acts.push('spinner on') } };
         p.showError = (m) => acts.push('message:' + m);
         p.retryFromSource = () => acts.push('retryFromSource');
+        p.getProxiedUrl = (u) => '/api/proxy/stream?url=' + encodeURIComponent(u);
+        p.playHls = (u) => acts.push('playHls:' + u);
         p.armStartTimeout();
         return { p, acts, fire: () => fire() };
     }
 
     const unreachable = {
-        status: 502,
+        status: 502, ok: false,
         json: async () => ({ unreachable: true, cause: 'ENOTFOUND', host: 'gone.example' })
     };
-    const other = { status: 500, json: async () => ({ error: 'fetch failed' }) };
+    const other = { status: 500, ok: false, json: async () => ({ error: 'fetch failed' }) };
+
+    it('relays through the server when only the server can reach it', async () => {
+        // Measured on the Fire TV: every request to the provider's host
+        // hung for 70 to 130 seconds and then failed, while the same host
+        // answered the server in 70ms -- same route out of the house, so
+        // the block sits upstream of the router. Relaying is what the
+        // proxy is for, and the answer is already in hand here.
+        const h = harness({ status: 200, ok: true, json: async () => ({}) });
+        await h.fire();
+        assert.equal(h.p.isUsingProxy, true);
+        assert.equal(h.p.directUnreachable, true);
+        assert.equal(h.acts.some(a => a.startsWith('playHls:/api/proxy')), true);
+        assert.equal(h.acts.some(a => a.startsWith('message:')), false,
+            'relaying is not a failure to report');
+    });
+
+    it('does not relay twice over', async () => {
+        const h = harness({ status: 200, ok: true, json: async () => ({}) });
+        h.p.isUsingProxy = true;
+        await h.fire();
+        assert.equal(h.acts.some(a => a.startsWith('playHls:/api/proxy')), false);
+    });
 
     it('names the host when the server cannot reach it either', async () => {
         const h = harness(unreachable);
@@ -639,6 +664,18 @@ describe('keeping at it after a verdict', () => {
         h.fire();
         assert.equal(h.p.isUsingProxy, false);
         assert.equal(h.p.networkRetryCount, 0);
+    });
+
+    it('keeps relaying when this device cannot reach the provider', () => {
+        // Going back to direct would cost another two minutes of hanging
+        // before failing in exactly the same way
+        const h = harness();
+        h.p.directUnreachable = true;
+        h.p.getProxiedUrl = (u) => '/api/proxy/stream?url=' + encodeURIComponent(u);
+        h.p.retryFromSource(h.channel, SOURCE);
+        h.fire();
+        assert.equal(h.p.isUsingProxy, true);
+        assert.equal(h.acts.some(a => a.startsWith('playHls:/api/proxy')), true);
     });
 
     it('lets the channel decide about transcoding from scratch', () => {
