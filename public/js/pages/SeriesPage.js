@@ -259,7 +259,7 @@ class SeriesPage {
                             this.seriesList.push({
                                 ...s,
                                 sourceId: source.id,
-                                id: `${source.id}:${s.series_id}`
+                                id: `${source.id}:series:${s.series_id}`
                             });
                         });
                     }

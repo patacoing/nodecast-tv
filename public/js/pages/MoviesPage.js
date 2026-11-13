@@ -281,7 +281,7 @@ class MoviesPage {
                             this.movies.push({
                                 ...m,
                                 sourceId: source.id,
-                                id: `${source.id}:${m.stream_id}`
+                                id: `${source.id}:movie:${m.stream_id}`
                             });
                         });
                     }

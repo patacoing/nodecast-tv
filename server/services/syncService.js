@@ -6,6 +6,7 @@ const epgParser = require('./epgParser');
 const log = require('../telemetry/logger');
 const { syncRuns, syncDuration } = require('../telemetry/metrics');
 const { span } = require('../telemetry/trace');
+const { itemId: makeItemId } = require('./itemId');
 
 // Sync tracking
 const activeSyncs = new Set(); // sourceId
@@ -327,7 +328,7 @@ class SyncService {
                     added = item.last_modified;
                 }
 
-                const id = `${sourceId}:${itemId}`;
+                const id = makeItemId(sourceId, type, itemId);
                 syncedIds.add(id);
 
                 stmt.run(
@@ -485,7 +486,7 @@ class SyncService {
 
             const insertChannels = db.transaction((chanList) => {
                 for (const ch of chanList) {
-                    const id = `${sourceId}:${ch.id}`;
+                    const id = makeItemId(sourceId, 'epg_channel', ch.id);
                     channelStmt.run(
                         id,
                         sourceId,

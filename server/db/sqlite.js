@@ -285,7 +285,93 @@ function initSchema() {
         // Column already exists, ignore
     }
 
+    migrateItemIdsToTyped(db);
+
     log.info('[SQLite] Schema initialized');
+}
+
+/**
+ * Put the kind into every catalogue id.
+ *
+ * Ids used to be `source:providerId`. The provider numbers each kind of
+ * content from its own sequence, so a live channel and a series routinely
+ * carry the same number -- 6410 of 6524 series on this account shared one.
+ * Both landed on the same row, and the upsert that followed updated the
+ * name and the payload but not the `type` column, so series were written
+ * into live channels' rows and kept calling themselves channels. The sync
+ * reported saving 6519 series and the table held 401.
+ *
+ * The new format is `source:type:providerId`. This rewrites what is
+ * already stored:
+ *
+ *  - playlist_items is renamed in place, using each row's own type. Some
+ *    of those types are the wrong ones -- that is the damage -- but the
+ *    next sync inserts the right rows and purges what no longer matches,
+ *    and renaming keeps a catalogue on screen until it does.
+ *  - tmdb_links and item_details are the expensive tables, thirteen
+ *    thousand rows that took days of TMDB calls. They are remapped from
+ *    tmdb_links.kind, which knows what each one is independently of the
+ *    corrupted column.
+ *  - downloads keeps its own `kind`, so a film already on disk keeps
+ *    pointing at the film.
+ *
+ * favorites and watch_history are left alone: their item_id has never
+ * been a playlist_items id.
+ */
+function migrateItemIdsToTyped(db) {
+    const stale = db.prepare(
+        `SELECT COUNT(*) n FROM playlist_items WHERE id NOT LIKE '%:%:%'`).get().n;
+    if (!stale) return;
+
+    log.info(`[SQLite] Migrating ${stale} catalogue ids to include their type`);
+
+    // tmdb kinds are TMDB's words; the catalogue uses its own
+    const KIND_TO_TYPE = { movie: 'movie', tv: 'series', episode: 'series' };
+
+    const migrate = db.transaction(() => {
+        // The expensive tables first, while the old ids still resolve
+        const links = db.prepare(
+            `SELECT item_id, kind FROM tmdb_links WHERE item_id NOT LIKE '%:%:%'`).all();
+        const newIdFor = new Map();
+        for (const link of links) {
+            const type = KIND_TO_TYPE[link.kind];
+            // No kind recorded: 79 rows of negative cache, cheaper to
+            // forget than to guess wrong and strand them
+            if (!type) continue;
+            const cut = link.item_id.indexOf(':');
+            if (cut < 0) continue;
+            newIdFor.set(link.item_id,
+                `${link.item_id.slice(0, cut)}:${type}:${link.item_id.slice(cut + 1)}`);
+        }
+
+        const setDetails = db.prepare('UPDATE OR REPLACE item_details SET item_id = ? WHERE item_id = ?');
+        const setLink = db.prepare('UPDATE OR REPLACE tmdb_links SET item_id = ? WHERE item_id = ?');
+        for (const [oldId, newId] of newIdFor) {
+            setDetails.run(newId, oldId);
+            setLink.run(newId, oldId);
+        }
+        db.prepare(`DELETE FROM tmdb_links WHERE item_id NOT LIKE '%:%:%'`).run();
+        db.prepare(`DELETE FROM item_details WHERE item_id NOT LIKE '%:%:%'`).run();
+
+        // Downloads carry their own kind
+        for (const row of db.prepare(
+            `SELECT item_id, kind FROM downloads WHERE item_id NOT LIKE '%:%:%'`).all()) {
+            const type = row.kind === 'episode' ? 'series' : (row.kind || 'movie');
+            const cut = row.item_id.indexOf(':');
+            if (cut < 0) continue;
+            db.prepare('UPDATE OR REPLACE downloads SET item_id = ? WHERE item_id = ?')
+                .run(`${row.item_id.slice(0, cut)}:${type}:${row.item_id.slice(cut + 1)}`,
+                    row.item_id);
+        }
+
+        // And the catalogue itself
+        db.prepare(`UPDATE OR REPLACE playlist_items
+                    SET id = source_id || ':' || type || ':' || item_id
+                    WHERE id NOT LIKE '%:%:%'`).run();
+    });
+
+    migrate();
+    log.info('[SQLite] Catalogue ids migrated; the next sync restores what collisions lost');
 }
 
 // ============================================================
