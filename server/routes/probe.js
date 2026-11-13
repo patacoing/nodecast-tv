@@ -25,6 +25,8 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 // The rule lives in one place: the same question is asked from the film
 // dialog, using the codecs the provider states, before anything is probed.
 const compatibility = require('../services/compatibility');
+const log = require('../telemetry/logger');
+const { probeResults } = require('../telemetry/metrics');
 
 /**
  * Probe stream with ffprobe
@@ -131,7 +133,7 @@ router.get('/', async (req, res) => {
 
     if (!ffprobePath) {
         // No ffprobe available - assume needs transcoding to be safe
-        console.log('[Probe] FFprobe not available, assuming transcode needed');
+        log.info('[Probe] FFprobe not available, assuming transcode needed');
         return res.json({
             video: 'unknown',
             audio: 'unknown',
@@ -145,11 +147,11 @@ router.get('/', async (req, res) => {
     // Check cache
     const cached = probeCache.get(cacheKey);
     if (cached && (Date.now() - cached.timestamp < CACHE_TTL)) {
-        console.log(`[Probe] Cache hit for: ${url.substring(0, 50)}...`);
+        log.info(`[Probe] Cache hit for: ${url.substring(0, 50)}...`);
         return res.json(cached.result);
     }
 
-    console.log(`[Probe] Probing: ${url.substring(0, 80)}... ${ua ? `(UA: ${ua})` : ''}`);
+    log.info(`[Probe] Probing: ${url.substring(0, 80)}... ${ua ? `(UA: ${ua})` : ''}`);
 
     try {
         const probeResult = await probeStream(url, ffprobePath, ua);
@@ -158,13 +160,21 @@ router.get('/', async (req, res) => {
         // Cache result
         probeCache.set(cacheKey, { result: analysis, timestamp: Date.now() });
 
-        console.log(`[Probe] Result: video=${analysis.video}, audio=${analysis.audio}, ` +
+        log.info(`[Probe] Result: video=${analysis.video}, audio=${analysis.audio}, ` +
             `container=${analysis.container}, compatible=${analysis.compatible}, ` +
             `needsRemux=${analysis.needsRemux}, needsTranscode=${analysis.needsTranscode}`);
 
+        // What a stream turns out to carry is the thing that decided
+        // every playback failure of the last weeks: no audio track, no
+        // video track, a codec the browser will not demux.
+        probeResults.add(1, {
+            video: analysis.video || 'none',
+            audio: analysis.audio || 'none',
+            compatible: String(!!analysis.compatible)
+        });
         res.json(analysis);
     } catch (err) {
-        console.error('[Probe] Failed:', err.message);
+        log.error('[Probe] Failed:', err.message);
 
         // On error, assume transcode needed to be safe
         res.json({

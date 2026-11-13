@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDb } = require('../db/sqlite');
 const { requireAuth } = require('../auth');
+const log = require('../telemetry/logger');
 
 // Middleware to ensure authentication
 router.use(requireAuth);
@@ -30,7 +31,7 @@ router.get('/', (req, res) => {
 
         res.json(history);
     } catch (err) {
-        console.error('[History] Error fetching history:', err);
+        log.error('[History] Error fetching history:', err);
         res.status(500).json({ error: 'Failed to fetch history' });
     }
 });
@@ -78,7 +79,7 @@ router.post('/', (req, res) => {
 
         res.json({ success: true, timestamp });
     } catch (err) {
-        console.error('[History] Error saving progress:', err);
+        log.error('[History] Error saving progress:', err);
         res.status(500).json({ error: 'Failed to save progress' });
     }
 });
@@ -104,7 +105,7 @@ router.delete('/:itemId', (req, res) => {
 
         res.json({ success: true });
     } catch (err) {
-        console.error('[History] Error deleting history item:', err);
+        log.error('[History] Error deleting history item:', err);
         res.status(500).json({ error: 'Failed to delete history item' });
     }
 });

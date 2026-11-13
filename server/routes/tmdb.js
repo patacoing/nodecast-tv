@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth, requireAdmin } = require('../auth');
 const enricher = require('../services/tmdbEnricher');
+const log = require('../telemetry/logger');
 
 router.use(requireAuth);
 
@@ -13,7 +14,7 @@ router.get('/status', (req, res) => {
     try {
         res.json(enricher.getStatus());
     } catch (err) {
-        console.error('[TMDB] Status failed:', err);
+        log.error('[TMDB] Status failed:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -77,7 +78,7 @@ router.post('/run', requireAdmin, (req, res) => {
     }
     const limit = Number(req.body?.limit) || undefined;
     enricher.runPass({ limit })
-        .catch(err => console.error('[TMDB] Manual pass failed:', err));
+        .catch(err => log.error('[TMDB] Manual pass failed:', err));
     res.json({ started: true });
 });
 
@@ -92,7 +93,7 @@ router.post('/retry', requireAdmin, (req, res) => {
         const cleared = enricher.resetUnmatched();
         if (enricher.isEnabled()) {
             enricher.runPass().catch(err =>
-                console.error('[TMDB] Retry pass failed:', err));
+                log.error('[TMDB] Retry pass failed:', err));
         }
         res.json({ cleared, started: enricher.isEnabled() });
     } catch (err) {

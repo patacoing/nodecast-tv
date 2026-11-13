@@ -19,6 +19,8 @@ const fs = require('fs').promises;
 const crypto = require('crypto');
 const EventEmitter = require('events');
 const hwDetect = require('./hwDetect');
+const log = require('../telemetry/logger');
+const { transcodeSessions, transcodeStarts } = require('../telemetry/metrics');
 
 // Session storage
 const sessions = new Map();
@@ -90,7 +92,7 @@ class TranscodeSession extends EventEmitter {
         }
 
         this.status = 'starting';
-        console.log(`[TranscodeSession ${this.id}] Starting session for: ${this.url}`);
+        log.info(`[TranscodeSession ${this.id}] Starting session for: ${this.url}`);
 
         // Create session directory
         try {
@@ -104,7 +106,7 @@ class TranscodeSession extends EventEmitter {
         // Build FFmpeg arguments for HLS output
         const args = this.buildFFmpegArgs();
 
-        console.log(`[TranscodeSession ${this.id}] Command: ${this.options.ffmpegPath} ${args.join(' ')}`);
+        log.info(`[TranscodeSession ${this.id}] Command: ${this.options.ffmpegPath} ${args.join(' ')}`);
 
         try {
             this.process = spawn(this.options.ffmpegPath, args, {
@@ -116,7 +118,7 @@ class TranscodeSession extends EventEmitter {
 
             // Handle stdout (should be empty for file output)
             this.process.stdout.on('data', (data) => {
-                console.log(`[TranscodeSession ${this.id}] stdout: ${data}`);
+                log.info(`[TranscodeSession ${this.id}] stdout: ${data}`);
             });
 
             // Handle stderr (FFmpeg progress/errors)
@@ -128,7 +130,7 @@ class TranscodeSession extends EventEmitter {
                 if (lines.length > 1) {
                     lines.slice(0, -1).forEach(line => {
                         if (line.trim()) {
-                            console.log(`[FFmpeg ${this.id}] ${line}`);
+                            log.info(`[FFmpeg ${this.id}] ${line}`);
                         }
                     });
                     stderrBuffer = lines[lines.length - 1];
@@ -138,10 +140,10 @@ class TranscodeSession extends EventEmitter {
             // Handle process exit
             this.process.on('exit', (code) => {
                 if (code === 0 || code === null) {
-                    console.log(`[TranscodeSession ${this.id}] FFmpeg completed successfully`);
+                    log.info(`[TranscodeSession ${this.id}] FFmpeg completed successfully`);
                     this.status = 'stopped';
                 } else if (code !== 255) { // 255 is often from SIGKILL
-                    console.error(`[TranscodeSession ${this.id}] FFmpeg exited with code ${code}`);
+                    log.error(`[TranscodeSession ${this.id}] FFmpeg exited with code ${code}`);
                     this.status = 'error';
                     this.error = `FFmpeg exited with code ${code}`;
                 }
@@ -151,10 +153,16 @@ class TranscodeSession extends EventEmitter {
 
             // Handle spawn errors
             this.process.on('error', (err) => {
-                console.error(`[TranscodeSession ${this.id}] FFmpeg error:`, err);
+                log.error(`[TranscodeSession ${this.id}] FFmpeg error:`, err);
                 this.status = 'error';
                 this.error = err.message;
                 this.emit('error', err);
+            });
+
+            transcodeSessions.add(1);
+            transcodeStarts.add(1, {
+                video_mode: this.options.videoMode || 'encode',
+                encoder: this.options.hwEncoder || 'software'
             });
 
             // Save session metadata
@@ -179,7 +187,7 @@ class TranscodeSession extends EventEmitter {
         if (encoder === 'auto') {
             const hwCaps = hwDetect.getCapabilities();
             encoder = hwCaps?.recommended || 'software';
-            console.log(`[TranscodeSession ${this.id}] Auto encoder resolved to: ${encoder}`);
+            log.info(`[TranscodeSession ${this.id}] Auto encoder resolved to: ${encoder}`);
         }
 
         const args = [
@@ -250,18 +258,18 @@ class TranscodeSession extends EventEmitter {
 
         if (audioMixPreset === 'passthrough') {
             // Passthrough: Always copy audio, no processing
-            console.log(`[TranscodeSession ${this.id}] Audio: Passthrough (copy)`);
+            log.info(`[TranscodeSession ${this.id}] Audio: Passthrough (copy)`);
             args.push('-c:a', 'copy');
         } else if (audioMixPreset === 'auto' && isStereoAac) {
             // Auto + Stereo AAC source: Smart copy
-            console.log(`[TranscodeSession ${this.id}] Audio: Auto (Smart Copy) - Source is Stereo AAC`);
+            log.info(`[TranscodeSession ${this.id}] Audio: Auto (Smart Copy) - Source is Stereo AAC`);
             args.push('-c:a', 'copy');
         } else {
             // Transcode to AAC with selected mix preset (default to ITU for 'auto')
             const mixPreset = (audioMixPreset === 'auto') ? 'itu' : audioMixPreset;
             const panFilter = AUDIO_MIX_FILTERS[mixPreset] || AUDIO_MIX_FILTERS.itu;
 
-            console.log(`[TranscodeSession ${this.id}] Audio: ${mixPreset.toUpperCase()} mix (${audioCodec} ${audioChannels}ch -> Stereo AAC)`);
+            log.info(`[TranscodeSession ${this.id}] Audio: ${mixPreset.toUpperCase()} mix (${audioCodec} ${audioChannels}ch -> Stereo AAC)`);
             args.push(
                 '-c:a', 'aac',
                 '-ar', '48000',
@@ -375,7 +383,7 @@ class TranscodeSession extends EventEmitter {
         // When upscaling is enabled, use the upscale target resolution
         if (this.options.upscaleEnabled) {
             const target = resolutionMap[this.options.upscaleTarget] || 1080;
-            console.log(`[TranscodeSession ${this.id}] Upscale target height: ${target}p`);
+            log.info(`[TranscodeSession ${this.id}] Upscale target height: ${target}p`);
             return target;
         }
 
@@ -406,7 +414,7 @@ class TranscodeSession extends EventEmitter {
 
         // Log upscaling status
         if (useUpscale) {
-            console.log(`[TranscodeSession ${this.id}] Upscaling: ${upscaleMethod} method to ${height}p`);
+            log.info(`[TranscodeSession ${this.id}] Upscaling: ${upscaleMethod} method to ${height}p`);
         }
 
         // Hardware scaling filters (for both upscale and downscale)
@@ -530,8 +538,9 @@ class TranscodeSession extends EventEmitter {
      * Stop the transcoding process
      */
     stop() {
+        if (this.status !== 'stopped') transcodeSessions.add(-1);
         if (this.process) {
-            console.log(`[TranscodeSession ${this.id}] Stopping FFmpeg process`);
+            log.info(`[TranscodeSession ${this.id}] Stopping FFmpeg process`);
             this.process.kill('SIGTERM');
             // Force kill after 2 seconds if still running
             setTimeout(() => {
@@ -638,7 +647,7 @@ class TranscodeSession extends EventEmitter {
             session.status = 'stopped'; // Not running after restart
             return session;
         } catch (err) {
-            console.error(`Failed to restore session from ${sessionDir}:`, err.message);
+            log.error(`Failed to restore session from ${sessionDir}:`, err.message);
             return null;
         }
     }
@@ -650,9 +659,9 @@ class TranscodeSession extends EventEmitter {
         this.stop();
         try {
             await fs.rm(this.dir, { recursive: true, force: true });
-            console.log(`[TranscodeSession ${this.id}] Cleaned up session directory`);
+            log.info(`[TranscodeSession ${this.id}] Cleaned up session directory`);
         } catch (err) {
-            console.error(`[TranscodeSession ${this.id}] Failed to cleanup:`, err.message);
+            log.error(`[TranscodeSession ${this.id}] Failed to cleanup:`, err.message);
         }
     }
 }
@@ -715,7 +724,7 @@ async function cleanupStaleSessions() {
     const now = Date.now();
     for (const [id, session] of sessions) {
         if (now - session.lastAccess > SESSION_TIMEOUT_MS) {
-            console.log(`[TranscodeSession] Cleaning up stale session ${id}`);
+            log.info(`[TranscodeSession] Cleaning up stale session ${id}`);
             await removeSession(id);
         }
     }
@@ -735,14 +744,14 @@ async function recoverSessions() {
                 const session = await TranscodeSession.restore(sessionDir);
                 if (session) {
                     sessions.set(session.id, session);
-                    console.log(`[TranscodeSession] Recovered session ${session.id}`);
+                    log.info(`[TranscodeSession] Recovered session ${session.id}`);
                 }
             }
         }
     } catch (err) {
         // Cache dir doesn't exist yet, that's fine
         if (err.code !== 'ENOENT') {
-            console.error('[TranscodeSession] Error recovering sessions:', err.message);
+            log.error('[TranscodeSession] Error recovering sessions:', err.message);
         }
     }
 }

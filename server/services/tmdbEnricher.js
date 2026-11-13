@@ -20,6 +20,7 @@ const cache = require('./cache');
 const tmdb = require('./tmdbApi');
 const { parseName, pickMatch } = require('./titleMatcher');
 const compatibility = require('./compatibility');
+const log = require('../telemetry/logger');
 
 // How long before an unmatched title is worth another look, and how many
 // times in total. A film released last week genuinely does turn up on TMDB
@@ -141,14 +142,14 @@ class TmdbEnricher {
     start(intervalHours = 6) {
         if (this._timer) clearInterval(this._timer);
         if (!this.isEnabled()) {
-            console.log('[TMDB] No TMDB_API_KEY set, enrichment disabled');
+            log.info('[TMDB] No TMDB_API_KEY set, enrichment disabled');
             return;
         }
         const ms = Math.max(1, Number(intervalHours) || 6) * 3600 * 1000;
         this._timer = setInterval(() => {
-            this.runPass().catch(err => console.error('[TMDB] Pass failed:', err));
+            this.runPass().catch(err => log.error('[TMDB] Pass failed:', err));
         }, ms);
-        console.log(`[TMDB] Enrichment enabled, pass every ${intervalHours}h`);
+        log.info(`[TMDB] Enrichment enabled, pass every ${intervalHours}h`);
     }
 
     stop() {
@@ -222,7 +223,7 @@ class TmdbEnricher {
                         // found". A run of them means something upstream is
                         // broken and there is no point continuing.
                         failed++;
-                        console.warn(`[TMDB] ${item.name}: ${err.message}`);
+                        log.warn(`[TMDB] ${item.name}: ${err.message}`);
                         if (++consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
                             stopped = 'errors';
                             break;
@@ -233,9 +234,9 @@ class TmdbEnricher {
             }
 
             if (examined === 0) {
-                console.log('[TMDB] Nothing left to enrich');
+                log.info('[TMDB] Nothing left to enrich');
             } else {
-                console.log(`[TMDB] Pass ${stopped || 'budget'}: ${matched} matched, `
+                log.info(`[TMDB] Pass ${stopped || 'budget'}: ${matched} matched, `
                     + `${unmatched} unmatched, ${failed} errors, ${this.countPending()} left`);
             }
 
@@ -537,7 +538,7 @@ class TmdbEnricher {
     resetUnmatched() {
         const { changes } = getDb()
             .prepare(`DELETE FROM tmdb_links WHERE status = 'unmatched'`).run();
-        console.log(`[TMDB] Cleared ${changes} unmatched entries for retry`);
+        log.info(`[TMDB] Cleared ${changes} unmatched entries for retry`);
         return changes;
     }
 
@@ -555,7 +556,7 @@ class TmdbEnricher {
                 WHERE item_id NOT IN (SELECT id FROM playlist_items)
             `).run().changes;
         }
-        if (changes > 0) console.log(`[TMDB] Dropped ${changes} orphan rows`);
+        if (changes > 0) log.info(`[TMDB] Dropped ${changes} orphan rows`);
         return changes;
     }
 

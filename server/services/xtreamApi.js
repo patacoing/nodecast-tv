@@ -2,6 +2,9 @@
  * Xtream Codes API v2 Client
  * Handles authentication and API calls to Xtream servers
  */
+const { span } = require('../telemetry/trace');
+const { upstreamRequests, upstreamDuration } = require('../telemetry/metrics');
+
 
 class XtreamApi {
     constructor(baseUrl, username, password) {
@@ -34,11 +37,40 @@ class XtreamApi {
      */
     async request(action, params = {}) {
         const url = this.buildApiUrl(action, params);
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`Xtream API error: ${response.status} ${response.statusText}`);
-        }
-        return response.json();
+        let host = 'unknown';
+        try { host = new URL(url).host; } catch { /* keep the placeholder */ }
+
+        // The action is the label worth having: get_vod_info behaving
+        // differently from get_live_streams is the kind of thing that has
+        // taken an afternoon to notice from logs alone.
+        const kind = `api:${action || 'auth'}`;
+
+        return span('provider.api', { 'provider.host': host, 'provider.action': action || 'auth' },
+            async (s) => {
+                const started = process.hrtime.bigint();
+                const seconds = () => Number(process.hrtime.bigint() - started) / 1e9;
+                let response;
+                try {
+                    response = await fetch(url);
+                } catch (err) {
+                    s.setAttribute('provider.outcome', 'unreachable');
+                    upstreamRequests.add(1, { kind, host, outcome: 'unreachable',
+                        status: err?.cause?.code || 'none' });
+                    upstreamDuration.record(seconds(), { kind, host, outcome: 'unreachable' });
+                    throw err;
+                }
+                const outcome = response.ok ? 'ok'
+                    : response.status >= 500 ? 'broken' : 'refused';
+                s.setAttribute('http.response.status_code', response.status);
+                s.setAttribute('provider.outcome', outcome);
+                upstreamRequests.add(1, { kind, host, outcome, status: String(response.status) });
+                upstreamDuration.record(seconds(), { kind, host, outcome });
+
+                if (!response.ok) {
+                    throw new Error(`Xtream API error: ${response.status} ${response.statusText}`);
+                }
+                return response.json();
+            });
     }
 
     /**

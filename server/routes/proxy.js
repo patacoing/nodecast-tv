@@ -12,6 +12,48 @@ const https = require('https');
 const { spawn } = require('child_process');
 const ffmpegPath = require('ffmpeg-static');
 const { Readable } = require('stream');
+const log = require('../telemetry/logger');
+const { span } = require('../telemetry/trace');
+const { upstreamRequests, upstreamDuration } = require('../telemetry/metrics');
+
+/**
+ * Fetch from the provider, counted and timed.
+ *
+ * Every failure of the last weeks passed through a call like this one and
+ * left nothing behind but a log line someone had to read. The outcome is
+ * split three ways because they mean different things and want different
+ * answers: refused is the provider saying no, broken is the provider
+ * failing, unreachable is the network between us.
+ */
+async function measuredFetch(url, options, kind) {
+    let host = 'unknown';
+    try { host = new URL(url).host; } catch { /* keep the placeholder */ }
+
+    return span('provider.fetch', { 'provider.host': host, 'provider.kind': kind },
+        async (s) => {
+            const started = process.hrtime.bigint();
+            const seconds = () => Number(process.hrtime.bigint() - started) / 1e9;
+            try {
+                const response = await fetch(url, options);
+                const outcome = response.ok ? 'ok'
+                    : response.status >= 500 ? 'broken' : 'refused';
+                s.setAttribute('http.response.status_code', response.status);
+                s.setAttribute('provider.outcome', outcome);
+                upstreamRequests.add(1, { kind, host, outcome, status: String(response.status) });
+                upstreamDuration.record(seconds(), { kind, host, outcome });
+                return response;
+            } catch (err) {
+                // No status at all: DNS, a refused connection, a timeout.
+                // Told apart from a refusal because the answer is
+                // different -- relaying can fix this one.
+                s.setAttribute('provider.outcome', 'unreachable');
+                upstreamRequests.add(1, { kind, host, outcome: 'unreachable',
+                    status: err?.cause?.code || 'none' });
+                upstreamDuration.record(seconds(), { kind, host, outcome: 'unreachable' });
+                throw err;
+            }
+        });
+}
 
 // Default cache max age in hours
 const DEFAULT_MAX_AGE_HOURS = 24;
@@ -108,7 +150,7 @@ router.get('/xtream/:sourceId/live_categories', async (req, res) => {
         const cats = getCategoriesFromDb(sourceId, 'live', includeHidden);
         res.json(cats);
     } catch (err) {
-        console.error(err);
+        log.error(err);
         res.status(500).json({ error: 'Database error' });
     }
 });
@@ -122,7 +164,7 @@ router.get('/xtream/:sourceId/live_streams', async (req, res) => {
         const streams = getStreamsFromDb(sourceId, 'live', categoryId, includeHidden);
         res.json(streams);
     } catch (err) {
-        console.error(err);
+        log.error(err);
         res.status(500).json({ error: 'Database error' });
     }
 });
@@ -135,7 +177,7 @@ router.get('/xtream/:sourceId/vod_categories', async (req, res) => {
         const cats = getCategoriesFromDb(sourceId, 'movie', includeHidden);
         res.json(cats);
     } catch (err) {
-        console.error(err);
+        log.error(err);
         res.status(500).json({ error: 'Database error' });
     }
 });
@@ -149,7 +191,7 @@ router.get('/xtream/:sourceId/vod_streams', async (req, res) => {
         const streams = getStreamsFromDb(sourceId, 'movie', categoryId, includeHidden);
         res.json(streams);
     } catch (err) {
-        console.error(err);
+        log.error(err);
         res.status(500).json({ error: 'Database error' });
     }
 });
@@ -162,7 +204,7 @@ router.get('/xtream/:sourceId/series_categories', async (req, res) => {
         const cats = getCategoriesFromDb(sourceId, 'series', includeHidden);
         res.json(cats);
     } catch (err) {
-        console.error(err);
+        log.error(err);
         res.status(500).json({ error: 'Database error' });
     }
 });
@@ -176,7 +218,7 @@ router.get('/xtream/:sourceId/series', async (req, res) => {
         const streams = getStreamsFromDb(sourceId, 'series', categoryId, includeHidden);
         res.json(streams);
     } catch (err) {
-        console.error(err);
+        log.error(err);
         res.status(500).json({ error: 'Database error' });
     }
 });
@@ -259,7 +301,7 @@ router.get('/xtream/:sourceId/stream/:streamId/:type', async (req, res) => {
 
         res.json({ url: streamUrl });
     } catch (err) {
-        console.error('Error getting stream URL:', err);
+        log.error('Error getting stream URL:', err);
         res.status(500).json({ error: 'Failed to get stream URL' });
     }
 });
@@ -309,7 +351,7 @@ router.get('/m3u/:sourceId', async (req, res) => {
         res.json({ channels: reformattedChannels, groups: reformattedGroups });
 
     } catch (err) {
-        console.error(err);
+        log.error(err);
         res.status(500).json({ error: 'Database error' });
     }
 });
@@ -372,7 +414,7 @@ router.get('/epg/:sourceId', async (req, res) => {
         });
 
     } catch (err) {
-        console.error(err);
+        log.error(err);
         res.status(500).json({ error: 'Database error' });
     }
 });
@@ -467,7 +509,7 @@ router.get('/xtream/:sourceId/:action', async (req, res) => {
 
         res.json(data);
     } catch (err) {
-        console.error('Xtream proxy error:', err);
+        log.error('Xtream proxy error:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -490,7 +532,7 @@ router.get('/xtream/:sourceId/stream/:streamId/:type?', async (req, res) => {
         const url = api.buildStreamUrl(streamId, type, container);
         res.json({ url });
     } catch (err) {
-        console.error('Stream URL error:', err);
+        log.error('Stream URL error:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -536,7 +578,7 @@ router.get('/epg/:sourceId', async (req, res) => {
 
         res.json(data);
     } catch (err) {
-        console.error('EPG proxy error:', err);
+        log.error('EPG proxy error:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -587,7 +629,7 @@ router.post('/epg/:sourceId/channels', async (req, res) => {
 
         res.json(result);
     } catch (err) {
-        console.error('EPG channels error:', err);
+        log.error('EPG channels error:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -628,20 +670,20 @@ router.get('/stream', async (req, res) => {
                 headers['Range'] = rangeHeader;
             }
 
-            const response = await fetch(url, { headers });
+            const response = await measuredFetch(url, { headers }, 'stream');
 
             // Retry on 5xx errors (transient upstream issues)
             if (response.status >= 500 && attempt < maxRetries) {
-                console.log(`[Proxy] Upstream 5xx error (attempt ${attempt}/${maxRetries}), retrying in 500ms...`);
+                log.info(`[Proxy] Upstream 5xx error (attempt ${attempt}/${maxRetries}), retrying in 500ms...`);
                 await new Promise(r => setTimeout(r, 500));
                 continue;
             }
 
             if (!response.ok) {
-                console.error(`Upstream error for ${url.substring(0, 80)}...: ${response.status} ${response.statusText}`);
+                log.error(`Upstream error for ${url.substring(0, 80)}...: ${response.status} ${response.statusText}`);
                 if (response.status === 403) {
                     const errorBody = await response.text().catch(() => 'N/A');
-                    console.error(`403 Response body: ${errorBody.substring(0, 200)}`);
+                    log.error(`403 Response body: ${errorBody.substring(0, 200)}`);
                 }
                 return res.status(response.status).send(`Failed to fetch stream: ${response.statusText}`);
             }
@@ -699,7 +741,7 @@ router.get('/stream', async (req, res) => {
 
                 const buffer = Buffer.concat(chunks);
                 const finalUrl = response.url || url;
-                console.log(`[Proxy] Processing HLS manifest from: ${finalUrl.substring(0, 80)}...`);
+                log.info(`[Proxy] Processing HLS manifest from: ${finalUrl.substring(0, 80)}...`);
                 res.set('Content-Type', 'application/vnd.apple.mpegurl');
 
                 let manifest = buffer.toString('utf-8');
@@ -741,7 +783,7 @@ router.get('/stream', async (req, res) => {
             }
 
             // Binary content (Video Segment or Key): Collect and send
-            console.log(`[Proxy] Serving binary content (${contentType})`);
+            log.info(`[Proxy] Serving binary content (${contentType})`);
             res.set('Content-Type', contentType || 'application/octet-stream');
 
             // For small files (like encryption keys), collect all data and send at once
@@ -761,9 +803,9 @@ router.get('/stream', async (req, res) => {
 
         } catch (err) {
             lastError = err;
-            console.error(`Stream proxy error (attempt ${attempt}/${maxRetries}):`, err.message);
+            log.error(`Stream proxy error (attempt ${attempt}/${maxRetries}):`, err.message);
             if (attempt < maxRetries) {
-                console.log('[Proxy] Retrying after error...');
+                log.info('[Proxy] Retrying after error...');
                 await new Promise(r => setTimeout(r, 500));
                 continue;
             }
@@ -799,12 +841,12 @@ router.get('/image', async (req, res) => {
             return res.status(400).json({ error: 'URL required' });
         }
 
-        const response = await fetch(url, {
+        const response = await measuredFetch(url, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Accept': 'image/*,*/*;q=0.8'
             }
-        });
+        }, 'image');
 
         if (!response.ok) {
             return res.status(response.status).send('Failed to fetch image');
@@ -826,7 +868,7 @@ router.get('/image', async (req, res) => {
         }
 
     } catch (err) {
-        console.error('Image proxy error:', err.message);
+        log.error('Image proxy error:', err.message);
         res.status(500).send('Image proxy error');
     }
 });

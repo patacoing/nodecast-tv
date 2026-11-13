@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { requireAuth } = require('../auth');
 const { getDb } = require('../db/sqlite');
+const log = require('../telemetry/logger');
 
 router.use(requireAuth);
 
@@ -79,7 +80,7 @@ router.get('/', (req, res) => {
             channels: out.live
         });
     } catch (err) {
-        console.error('[Search] Failed:', err);
+        log.error('[Search] Failed:', err);
         res.status(500).json({ error: err.message });
     }
 });

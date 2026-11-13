@@ -6,6 +6,7 @@
 const sax = require('sax');
 const zlib = require('zlib');
 const { Readable } = require('stream');
+const log = require('../telemetry/logger');
 
 /**
  * Parse XMLTV date format (YYYYMMDDHHmmss +ZZZZ)
@@ -56,7 +57,7 @@ function parse(input) {
             // clear the error
             this._parser.error = null;
             this._parser.resume();
-            console.warn('XML Parse Warning:', e.message);
+            log.warn('XML Parse Warning:', e.message);
         });
 
         saxStream.on('opentag', function (node) {
@@ -286,7 +287,7 @@ async function* parseStreaming(input, batchSize = 1000) {
     saxStream.on('error', function (e) {
         this._parser.error = null;
         this._parser.resume();
-        console.warn('XML Parse Warning:', e.message);
+        log.warn('XML Parse Warning:', e.message);
     });
 
     saxStream.on('opentag', function (node) {

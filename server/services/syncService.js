@@ -3,6 +3,9 @@ const { sources, settings } = require('../db'); // For source config and setting
 const xtreamApi = require('./xtreamApi');
 const m3uParser = require('./m3uParser');
 const epgParser = require('./epgParser');
+const log = require('../telemetry/logger');
+const { syncRuns, syncDuration } = require('../telemetry/metrics');
+const { span } = require('../telemetry/trace');
 
 // Sync tracking
 const activeSyncs = new Set(); // sourceId
@@ -32,7 +35,7 @@ class SyncService {
 
         // If interval is 0, don't start timer (manual only mode)
         if (intervalHours <= 0) {
-            console.log('[Sync] Auto-sync disabled (manual only mode)');
+            log.info('[Sync] Auto-sync disabled (manual only mode)');
             this.stopSyncTimer();
             this._currentInterval = 0;
             return;
@@ -42,7 +45,7 @@ class SyncService {
 
         // Don't restart if interval hasn't changed and timer exists
         if (this._currentInterval === intervalHours && this._syncTimer) {
-            console.log(`[Sync] Timer already running for ${intervalHours} hours, not restarting`);
+            log.info(`[Sync] Timer already running for ${intervalHours} hours, not restarting`);
             return;
         }
 
@@ -50,15 +53,15 @@ class SyncService {
         this.stopSyncTimer();
 
         const nextSyncTime = new Date(Date.now() + intervalMs);
-        console.log(`[Sync] Starting server-side sync timer: every ${intervalHours} hours`);
-        console.log(`[Sync] Next scheduled sync at: ${nextSyncTime.toLocaleString()}`);
+        log.info(`[Sync] Starting server-side sync timer: every ${intervalHours} hours`);
+        log.info(`[Sync] Next scheduled sync at: ${nextSyncTime.toLocaleString()}`);
 
         this._syncTimer = setInterval(async () => {
-            console.log('[Sync] Scheduled sync triggered');
+            log.info('[Sync] Scheduled sync triggered');
             await this.syncAll();
             // Log next sync time
             const next = new Date(Date.now() + intervalMs);
-            console.log(`[Sync] Next scheduled sync at: ${next.toLocaleString()}`);
+            log.info(`[Sync] Next scheduled sync at: ${next.toLocaleString()}`);
         }, intervalMs);
 
         this._currentInterval = intervalHours;
@@ -86,7 +89,7 @@ class SyncService {
      * Sync all enabled sources
      */
     async syncAll() {
-        console.log('[Sync] Starting global sync...');
+        log.info('[Sync] Starting global sync...');
         try {
             const allSources = await sources.getAll();
             for (const source of allSources) {
@@ -96,9 +99,9 @@ class SyncService {
                 }
             }
             this.lastSyncTime = new Date();
-            console.log('[Sync] Global sync completed at', this.lastSyncTime.toISOString());
+            log.info('[Sync] Global sync completed at', this.lastSyncTime.toISOString());
         } catch (err) {
-            console.error('[Sync] Global sync failed:', err);
+            log.error('[Sync] Global sync failed:', err);
         }
     }
 
@@ -107,12 +110,18 @@ class SyncService {
      */
     async syncSource(sourceId) {
         if (activeSyncs.has(sourceId)) {
-            console.log(`[Sync] Source ${sourceId} is already syncing`);
+            log.info(`[Sync] Source ${sourceId} is already syncing`);
             return;
         }
 
         activeSyncs.add(sourceId);
 
+        // A sync walks tens of thousands of rows and is the slowest thing
+        // the server does. Timing it is how a catalogue that has started
+        // taking twenty minutes gets noticed before it is an hour.
+        const startedAt = process.hrtime.bigint();
+        let sourceType = 'unknown';
+        let outcome = 'ok';
         try {
             const db = getDb();
             const source = await sources.getById(sourceId);
@@ -121,12 +130,13 @@ class SyncService {
                 throw new Error(`Source ${sourceId} not found`);
             }
 
-            console.log(`[Sync] Starting sync for source ${source.name} (ID: ${sourceId})`);
+            sourceType = source.type || 'unknown';
+            log.info(`[Sync] Starting sync for source ${source.name} (ID: ${sourceId})`);
 
             if (!source.enabled) {
-                console.log(`[Sync] Skipping disabled source ${source.name}`);
-                activeSyncs.delete(sourceId);
-                return;
+                outcome = 'skipped';
+                log.info(`[Sync] Skipping disabled source ${source.name}`);
+                return;   // the finally below records it and releases the lock
             }
 
             // Update status
@@ -141,13 +151,18 @@ class SyncService {
             }
 
             this.updateSyncStatus(sourceId, 'all', 'success');
-            console.log(`[Sync] Completed sync for source ${source.name}`);
+            log.info(`[Sync] Completed sync for source ${source.name}`);
 
         } catch (err) {
-            console.error(`[Sync] Failed sync for source ${sourceId}:`, err);
+            outcome = 'error';
+            log.error(`[Sync] Failed sync for source ${sourceId}:`, err);
             this.updateSyncStatus(sourceId, 'all', 'error', err.message);
         } finally {
             activeSyncs.delete(sourceId);
+            syncRuns.add(1, { source_type: sourceType, outcome });
+            syncDuration.record(
+                Number(process.hrtime.bigint() - startedAt) / 1e9,
+                { source_type: sourceType, outcome });
         }
     }
 
@@ -175,43 +190,43 @@ class SyncService {
         const db = getDb();
 
         // 1. Live Categories
-        console.log(`[Sync] Fetching Live Categories for ${source.name}`);
+        log.info(`[Sync] Fetching Live Categories for ${source.name}`);
         const liveCats = await api.getLiveCategories();
         await this.saveCategories(source.id, 'live', liveCats);
 
         // 2. Live Streams
-        console.log(`[Sync] Fetching Live Streams for ${source.name}`);
+        log.info(`[Sync] Fetching Live Streams for ${source.name}`);
         const liveStreams = await api.getLiveStreams();
         await this.saveStreams(source.id, 'live', liveStreams);
 
         // 3. VOD Categories
-        console.log(`[Sync] Fetching VOD Categories for ${source.name}`);
+        log.info(`[Sync] Fetching VOD Categories for ${source.name}`);
         const vodCats = await api.getVodCategories();
         await this.saveCategories(source.id, 'movie', vodCats);
 
         // 4. VOD Streams
-        console.log(`[Sync] Fetching VOD Streams for ${source.name}`);
+        log.info(`[Sync] Fetching VOD Streams for ${source.name}`);
         const vodStreams = await api.getVodStreams();
         await this.saveStreams(source.id, 'movie', vodStreams);
 
         // 5. Series Categories
-        console.log(`[Sync] Fetching Series Categories for ${source.name}`);
+        log.info(`[Sync] Fetching Series Categories for ${source.name}`);
         const seriesCats = await api.getSeriesCategories();
         await this.saveCategories(source.id, 'series', seriesCats);
 
         // 6. Series
-        console.log(`[Sync] Fetching Series for ${source.name}`);
+        log.info(`[Sync] Fetching Series for ${source.name}`);
         const series = await api.getSeries();
         await this.saveStreams(source.id, 'series', series);
 
         // 7. EPG (Xmltv)
         // Try to fetch XMLTV if available
-        console.log(`[Sync] Fetching EPG for ${source.name}`);
+        log.info(`[Sync] Fetching EPG for ${source.name}`);
         try {
             const xmltvUrl = api.getXmltvUrl();
             await this.syncEpgFromUrl(source.id, xmltvUrl);
         } catch (e) {
-            console.warn('[Sync] XMLTV fetch failed, skipping EPG sync for now:', e.message);
+            log.warn('[Sync] XMLTV fetch failed, skipping EPG sync for now:', e.message);
         }
     }
 
@@ -220,7 +235,7 @@ class SyncService {
      */
     async saveCategories(sourceId, type, categories) {
         if (!categories || categories.length === 0) return;
-        console.log(`[Sync] Saving ${categories.length} ${type} categories for source ${sourceId}...`);
+        log.info(`[Sync] Saving ${categories.length} ${type} categories for source ${sourceId}...`);
         const db = getDb();
         const stmt = db.prepare(`
             INSERT INTO categories (id, source_id, category_id, type, name, parent_id, data)
@@ -247,7 +262,7 @@ class SyncService {
             await new Promise(resolve => setImmediate(resolve));
         }
 
-        console.log(`[Sync] Saved ${categories.length} ${type} categories`);
+        log.info(`[Sync] Saved ${categories.length} ${type} categories`);
     }
 
     /**
@@ -346,7 +361,7 @@ class SyncService {
             await this.purgeStaleItems(sourceId, type, syncedIds);
         }
 
-        console.log(`[Sync] Saved ${items.length} ${type} items`);
+        log.info(`[Sync] Saved ${items.length} ${type} items`);
         return syncedIds;
     }
 
@@ -379,7 +394,7 @@ class SyncService {
         const deleted = deleteStmt.run(sourceId, type);
 
         if (deleted.changes > 0) {
-            console.log(`[Sync] Purged ${deleted.changes} stale ${type} items`);
+            log.info(`[Sync] Purged ${deleted.changes} stale ${type} items`);
         }
     }
 
@@ -389,12 +404,12 @@ class SyncService {
      * Processes EPG files in batches to avoid OOM on large EPG data
      */
     async syncEpgFromUrl(sourceId, url) {
-        console.log(`[Sync] Fetching EPG from: ${url.substring(0, 60)}...`);
+        log.info(`[Sync] Fetching EPG from: ${url.substring(0, 60)}...`);
 
         // Temporary memory logging for verification
         const logMemory = () => {
             const used = process.memoryUsage();
-            console.log(`[Sync] Memory: ${Math.round(used.heapUsed / 1024 / 1024)}MB heap`);
+            log.info(`[Sync] Memory: ${Math.round(used.heapUsed / 1024 / 1024)}MB heap`);
         };
 
         logMemory();
@@ -443,7 +458,7 @@ class SyncService {
 
             // Log progress every 10 batches
             if (batchCount % 10 === 0) {
-                console.log(`[Sync] Processed ${totalProgrammes} programmes so far...`);
+                log.info(`[Sync] Processed ${totalProgrammes} programmes so far...`);
                 logMemory();
             }
 
@@ -451,7 +466,7 @@ class SyncService {
             await new Promise(resolve => setImmediate(resolve));
         }
 
-        console.log(`[Sync] EPG Parsed: ${allChannels.length} channels, ${totalProgrammes} programmes`);
+        log.info(`[Sync] EPG Parsed: ${allChannels.length} channels, ${totalProgrammes} programmes`);
         logMemory();
 
         // Save EPG Channels
@@ -486,10 +501,10 @@ class SyncService {
             });
 
             insertChannels(allChannels);
-            console.log(`[Sync] Saved ${allChannels.length} EPG channels`);
+            log.info(`[Sync] Saved ${allChannels.length} EPG channels`);
         }
 
-        console.log(`[Sync] Saved ${totalProgrammes} programmes`);
+        log.info(`[Sync] Saved ${totalProgrammes} programmes`);
     }
 
     /**
@@ -497,12 +512,12 @@ class SyncService {
      * Processes M3U files in batches to avoid OOM on large playlists
      */
     async syncM3u(source) {
-        console.log(`[Sync] Fetching M3U playlist for ${source.name}`);
+        log.info(`[Sync] Fetching M3U playlist for ${source.name}`);
 
         // Temporary memory logging for verification
         const logMemory = () => {
             const used = process.memoryUsage();
-            console.log(`[Sync] Memory: ${Math.round(used.heapUsed / 1024 / 1024)}MB heap`);
+            log.info(`[Sync] Memory: ${Math.round(used.heapUsed / 1024 / 1024)}MB heap`);
         };
 
         logMemory();
@@ -538,12 +553,12 @@ class SyncService {
 
             // Log progress every 10 batches
             if (batchCount % 10 === 0) {
-                console.log(`[Sync] Processed ${totalChannels} channels so far...`);
+                log.info(`[Sync] Processed ${totalChannels} channels so far...`);
                 logMemory();
             }
         }
 
-        console.log(`[Sync] M3U Parsed: ${totalChannels} channels, ${allGroups.size} groups`);
+        log.info(`[Sync] M3U Parsed: ${totalChannels} channels, ${allGroups.size} groups`);
         logMemory();
 
         // Purge stale items after all batches are complete
@@ -559,14 +574,14 @@ class SyncService {
         }));
 
         await this.saveCategories(source.id, 'live', categories);
-        console.log(`[Sync] M3U sync complete for ${source.name}`);
+        log.info(`[Sync] M3U sync complete for ${source.name}`);
     }
 
     /**
      * EPG Source Sync Logic
      */
     async syncEpg(source) {
-        console.log(`[Sync] Fetching standalone EPG for ${source.name}`);
+        log.info(`[Sync] Fetching standalone EPG for ${source.name}`);
         await this.syncEpgFromUrl(source.id, source.url);
     }
 }

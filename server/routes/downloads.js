@@ -4,6 +4,7 @@ const fs = require('fs');
 const router = express.Router();
 const { requireAuth } = require('../auth');
 const manager = require('../services/downloadManager');
+const log = require('../telemetry/logger');
 
 /**
  * The name the file arrives under on the phone, rather than the composite
@@ -103,7 +104,7 @@ router.post('/:itemId', async (req, res) => {
     try {
         answer(res, await manager.request(req.params.itemId));
     } catch (err) {
-        console.error('[Downloads] Request failed:', err);
+        log.error('[Downloads] Request failed:', err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -118,7 +119,7 @@ router.post('/series/:seriesItemId/episode/:episodeId', async (req, res) => {
         answer(res, await manager.requestEpisode(
             req.params.seriesItemId, req.params.episodeId));
     } catch (err) {
-        console.error('[Downloads] Episode request failed:', err);
+        log.error('[Downloads] Episode request failed:', err);
         res.status(500).json({ error: err.message });
     }
 });

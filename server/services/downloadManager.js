@@ -25,6 +25,9 @@ const { getDb } = require('../db/sqlite');
 const db = require('../db');
 const cache = require('./cache');
 const xtreamApi = require('./xtreamApi');
+const log = require('../telemetry/logger');
+const { downloadsStarted, downloadsFinished, downloadBytes } = require('../telemetry/metrics');
+const { span } = require('../telemetry/trace');
 
 const DIR = path.join(__dirname, '..', '..', 'data', 'downloads');
 
@@ -222,6 +225,7 @@ function enqueue(spec) {
         spec.kind, spec.sourceId, String(spec.streamId),
         spec.ext || 'mp4', spec.audioCodec || null, Math.round(spec.estimate));
 
+    downloadsStarted.add(1, { kind: spec.kind });
     pump();
     return { ok: true, already: null };
 }
@@ -327,7 +331,8 @@ function pump() {
     running = true;
     prepare(next)
         .catch(err => {
-            console.error('[Downloads] Failed:', err.message);
+            downloadsFinished.add(1, { kind: next.kind || 'movie', outcome: 'failed' });
+            log.error('[Downloads] Failed:', err.message);
             getDb().prepare(`UPDATE downloads SET status='failed', error=?
                 WHERE item_id = ?`).run(String(err.message).slice(0, 300), next.item_id);
         })
@@ -379,7 +384,7 @@ async function prepare(row) {
     const out = path.join(ensureDir(), `${row.item_id.replace(/[^\w.-]/g, '_')}.mp4`);
     getDb().prepare(`UPDATE downloads SET status='running', path=?, progress=0
         WHERE item_id = ?`).run(out, row.item_id);
-    console.log(`[Downloads] Preparing ${name}${audioOk ? ' (copy)' : ' (audio to aac)'}`);
+    log.info(`[Downloads] Preparing ${name}${audioOk ? ' (copy)' : ' (audio to aac)'}`);
 
     await runFfmpeg(url, out, userAgent, audioOk, row);
 
@@ -406,9 +411,11 @@ async function prepare(row) {
     }
 
     const size = fs.statSync(out).size;
+    downloadsFinished.add(1, { kind: row.kind || 'movie', outcome: 'ready' });
+    downloadBytes.record(size, { kind: row.kind || 'movie' });
     getDb().prepare(`UPDATE downloads SET status='ready', size=?, progress=1,
         ready_at=? WHERE item_id = ?`).run(size, Date.now(), row.item_id);
-    console.log(`[Downloads] Ready: ${name} (${(size / 1024 ** 3).toFixed(1)}GB)`);
+    log.info(`[Downloads] Ready: ${name} (${(size / 1024 ** 3).toFixed(1)}GB)`);
 }
 
 function runFfmpeg(url, out, userAgent, audioOk, row) {
@@ -498,7 +505,7 @@ function recoverInterrupted() {
         getDb().prepare(`UPDATE downloads SET status='failed',
             error='interrupted by a restart' WHERE item_id = ?`).run(row.item_id);
     }
-    if (stale.length) console.log(`[Downloads] ${stale.length} interrupted, marked failed`);
+    if (stale.length) log.info(`[Downloads] ${stale.length} interrupted, marked failed`);
     pump();
 }
 

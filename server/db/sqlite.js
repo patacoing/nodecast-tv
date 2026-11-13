@@ -1,6 +1,7 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
+const log = require('../telemetry/logger');
 
 const dataDir = path.join(__dirname, '..', '..', 'data');
 const dbPath = path.join(dataDir, 'content.db');
@@ -14,7 +15,7 @@ let db;
 
 function getDb() {
     if (!db) {
-        console.log('[SQLite] Opening database at', dbPath);
+        log.info('[SQLite] Opening database at', dbPath);
         db = new Database(dbPath);
         // Optimize performance
         db.pragma('journal_mode = WAL');
@@ -270,7 +271,7 @@ function initSchema() {
                                         ['downloads', 'estimate', 'INTEGER']]) {
         try {
             db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
-            console.log(`[SQLite] Added ${column} column to ${table}`);
+            log.info(`[SQLite] Added ${column} column to ${table}`);
         } catch (e) {
             // Column already exists, ignore
         }
@@ -279,12 +280,12 @@ function initSchema() {
     // Migration: Add source_id column if missing (for existing databases)
     try {
         db.exec(`ALTER TABLE watch_history ADD COLUMN source_id INTEGER`);
-        console.log('[SQLite] Added source_id column to watch_history');
+        log.info('[SQLite] Added source_id column to watch_history');
     } catch (e) {
         // Column already exists, ignore
     }
 
-    console.log('[SQLite] Schema initialized');
+    log.info('[SQLite] Schema initialized');
 }
 
 // ============================================================

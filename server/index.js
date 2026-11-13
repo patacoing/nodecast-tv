@@ -1,5 +1,11 @@
-const express = require('express');
+// Before everything else. The instrumentations work by patching http and
+// express as they load, and a module already loaded is a module already
+// missed -- so this line has to stay first, above the requires below.
 require('dotenv').config();
+require('./telemetry').start();
+
+const log = require('./telemetry/logger');
+const express = require('express');
 const path = require('path');
 const passport = require('passport');
 const syncService = require('./services/syncService');
@@ -44,7 +50,7 @@ function findFFmpeg() {
     // Try system FFmpeg first (better Docker compatibility)
     try {
         execSync('ffmpeg -version', { stdio: 'ignore' });
-        console.log('FFmpeg binary configured at: ffmpeg (system)');
+        log.info('FFmpeg binary configured at: ffmpeg (system)');
         return 'ffmpeg';
     } catch (e) {
         // System FFmpeg not found, try ffmpeg-static
@@ -58,11 +64,11 @@ function findFFmpeg() {
         if (ffmpegPath && ffmpegPath.includes('app.asar')) {
             ffmpegPath = ffmpegPath.replace('app.asar', 'app.asar.unpacked');
         }
-        console.log('FFmpeg binary configured at:', ffmpegPath);
+        log.info('FFmpeg binary configured at:', ffmpegPath);
         return ffmpegPath;
     } catch (err) {
-        console.warn('FFmpeg not available - transcoding/remuxing will be disabled.');
-        console.warn('Install FFmpeg via your package manager or npm install ffmpeg-static');
+        log.warn('FFmpeg not available - transcoding/remuxing will be disabled.');
+        log.warn('Install FFmpeg via your package manager or npm install ffmpeg-static');
         return null;
     }
 }
@@ -71,7 +77,7 @@ function findFFprobe() {
     // Try system ffprobe first
     try {
         execSync('ffprobe -version', { stdio: 'ignore' });
-        console.log('FFprobe binary configured at: ffprobe (system)');
+        log.info('FFprobe binary configured at: ffprobe (system)');
         return 'ffprobe';
     } catch (e) {
         // Not found in system
@@ -81,14 +87,14 @@ function findFFprobe() {
     try {
         const ffprobePath = require('@ffprobe-installer/ffprobe').path;
         if (ffprobePath) {
-            console.log('FFprobe binary configured at:', ffprobePath);
+            log.info('FFprobe binary configured at:', ffprobePath);
             return ffprobePath;
         }
     } catch (err) {
         // Package not available
     }
 
-    console.warn('FFprobe not available - auto transcode will fallback to always transcode');
+    log.warn('FFprobe not available - auto transcode will fallback to always transcode');
     return null;
 }
 
@@ -106,11 +112,11 @@ try {
         try {
             services[name] = require(path.join(servicesDir, file));
         } catch (e) {
-            console.warn(`Failed to load service ${file}:`, e.message);
+            log.warn(`Failed to load service ${file}:`, e.message);
         }
     }
 } catch (e) {
-    console.warn('No services directory found or failed to read services:', e.message);
+    log.warn('No services directory found or failed to read services:', e.message);
 }
 
 // Freeze services object to prevent plugins from mutating shared state
@@ -140,35 +146,35 @@ async function loadPlugins() {
                         // Direct function export (sync or async)
                         await plugin(app, services);
                         loadedPlugins.push({ name: file, plugin: null });
-                        console.log(`✓ Loaded plugin: ${file}`);
+                        log.info(`✓ Loaded plugin: ${file}`);
                     } else if (plugin && typeof plugin.init === 'function') {
                         // Object export with init/shutdown lifecycle
                         await plugin.init(app, services);
                         loadedPlugins.push({ name: file, plugin });
-                        console.log(`✓ Loaded plugin: ${file} (with lifecycle hooks)`);
+                        log.info(`✓ Loaded plugin: ${file} (with lifecycle hooks)`);
                     } else {
-                        console.warn(`⚠ Plugin ${file} does not export a function or object with init(), skipping.`);
+                        log.warn(`⚠ Plugin ${file} does not export a function or object with init(), skipping.`);
                     }
                 } catch (err) {
-                    console.error(`✗ Failed to load plugin ${file}:`, err);
+                    log.error(`✗ Failed to load plugin ${file}:`, err);
                 }
             }
         }
     } catch (err) {
-        console.warn('Plugin loader failed:', err.message);
+        log.warn('Plugin loader failed:', err.message);
     }
 }
 
 // Graceful shutdown handler for plugins with shutdown hooks
 process.on('SIGTERM', async () => {
-    console.log('SIGTERM received, shutting down plugins...');
+    log.info('SIGTERM received, shutting down plugins...');
     for (const { name, plugin } of loadedPlugins) {
         if (plugin && typeof plugin.shutdown === 'function') {
             try {
                 await plugin.shutdown();
-                console.log(`✓ Shutdown plugin: ${name}`);
+                log.info(`✓ Shutdown plugin: ${name}`);
             } catch (err) {
-                console.error(`✗ Error shutting down plugin ${name}:`, err);
+                log.error(`✗ Error shutting down plugin ${name}:`, err);
             }
         }
     }
@@ -198,6 +204,16 @@ app.get('/api/version', (req, res) => {
     res.json({ version: pkg.version });
 });
 
+/**
+ * Liveness, for uptime-kuma and for anything that restarts containers.
+ * Deliberately cheap and unauthenticated: it answers whether the process
+ * is serving, not whether the catalogue is any good.
+ */
+app.get('/healthz', (req, res) => {
+    res.json({ status: 'ok', version: require('../package.json').version,
+        uptime_s: Math.round(process.uptime()) });
+});
+
 // SPA fallback - serve index.html for all non-API routes
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
@@ -205,12 +221,21 @@ app.get('*', (req, res) => {
 
 // Error handling
 app.use((err, req, res, next) => {
-    console.error('Server error:', err);
+    log.error('Server error:', err);
     res.status(500).json({ error: 'Internal server error' });
 });
 
 app.listen(PORT, async () => {
-    console.log(`NodeCast TV server running on http://localhost:${PORT}`);
+    log.info(`NodeCast TV server running on http://localhost:${PORT}`);
+
+    // Counting rows when something scrapes, rather than pushing a number
+    // that goes stale the moment anything changes behind our back.
+    try {
+        const { registerCatalogueGauges } = require('./telemetry/metrics');
+        registerCatalogueGauges(require('./db/sqlite').getDb);
+    } catch (err) {
+        log.warn('[Telemetry] Catalogue gauges unavailable:', err.message);
+    }
 
     // Before anything slow. A download that was running when the server
     // stopped left a partial file that would otherwise pass for a finished
@@ -219,26 +244,26 @@ app.listen(PORT, async () => {
     try {
         require('./services/downloadManager').recoverInterrupted();
     } catch (err) {
-        console.warn('Download recovery failed:', err.message);
+        log.warn('Download recovery failed:', err.message);
     }
 
     // Load plugins
     await loadPlugins().catch(err => {
-        console.error('Plugin initialization failed:', err);
+        log.error('Plugin initialization failed:', err);
     });
 
     // Trigger background sync with delay to allow server to settle
     setTimeout(async () => {
-        await syncService.syncAll().catch(console.error);
+        await syncService.syncAll().catch(err => log.error(err));
         // Start the server-side sync timer after initial sync
-        await syncService.startSyncTimer().catch(console.error);
+        await syncService.startSyncTimer().catch(err => log.error(err));
 
         // Detect hardware acceleration capabilities
         try {
             const hwDetect = require('./services/hwDetect');
             await hwDetect.detect();
         } catch (err) {
-            console.warn('Hardware detection failed:', err.message);
+            log.warn('Hardware detection failed:', err.message);
         }
 
         // TMDB enrichment. Starts its own timer and does nothing at all
@@ -250,9 +275,9 @@ app.listen(PORT, async () => {
             // waiting, and after the first backfill this is a few dozen
             // entries rather than the whole library.
             tmdbEnricher.runPass().catch(err =>
-                console.error('[TMDB] Initial pass failed:', err));
+                log.error('[TMDB] Initial pass failed:', err));
         } catch (err) {
-            console.warn('TMDB enrichment failed to start:', err.message);
+            log.warn('TMDB enrichment failed to start:', err.message);
         }
     }, 5000);
 });

@@ -2,6 +2,7 @@ const express = require('express');
 const { hlsInputArgs } = require('../services/hlsInput');
 const router = express.Router();
 const { spawn } = require('child_process');
+const log = require('../telemetry/logger');
 
 /**
  * Subtitle extraction endpoint
@@ -17,7 +18,7 @@ router.get('/', (req, res) => {
     }
 
     const ffmpegPath = req.app.locals.ffmpegPath || 'ffmpeg';
-    // console.log(`[Subtitle] Extracting track ${index} from: ${url}`);
+    // log.info(`[Subtitle] Extracting track ${index} from: ${url}`);
 
     const args = [
         '-hide_banner',
@@ -42,7 +43,7 @@ router.get('/', (req, res) => {
     ffmpeg.stdout.pipe(res);
 
     ffmpeg.stderr.on('data', (data) => {
-        // console.error(`[Subtitle FFmpeg] ${data}`);
+        // log.error(`[Subtitle FFmpeg] ${data}`);
     });
 
     req.on('close', () => {
@@ -50,7 +51,7 @@ router.get('/', (req, res) => {
     });
 
     ffmpeg.on('error', (err) => {
-        console.error('[Subtitle] Failed to spawn FFmpeg:', err);
+        log.error('[Subtitle] Failed to spawn FFmpeg:', err);
         if (!res.headersSent) {
             res.status(500).send('Subtitle extraction failed');
         }

@@ -1,4 +1,6 @@
-/**
+
+const { tmdbRequests } = require('../telemetry/metrics');
+const { span } = require('../telemetry/trace');/**
  * TMDB client.
  *
  * Deliberately small: search and details, nothing else. The key comes from
@@ -47,8 +49,15 @@ async function request(path, params = {}) {
     if (wait > 0) await new Promise(r => setTimeout(r, wait));
     lastRequestAt = Date.now();
 
-    const res = await fetch(url, {
-        headers: creds.header ? { Authorization: creds.header } : {}
+    const res = await span('tmdb.request', { 'tmdb.path': path }, () =>
+        fetch(url, { headers: creds.header ? { Authorization: creds.header } : {} }));
+
+    // 429 is the one worth watching on its own: the enrichment pass backs
+    // off when it sees one, and a graph of them says whether the pacing
+    // is right or the catalogue will take weeks.
+    tmdbRequests.add(1, {
+        outcome: res.ok ? 'ok' : res.status === 429 ? 'rate_limited' : 'error',
+        status: String(res.status)
     });
 
     if (res.status === 429) {
