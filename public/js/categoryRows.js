@@ -19,6 +19,11 @@ const ROW_LIMIT = 12;
 // Rows built before the scroll sentinel takes over.
 const FIRST_ROWS = 3;
 
+// Cards added per batch when a whole category is opened. The biggest
+// category here holds 1644 films; putting them all in the document at once
+// is what the row recycling exists to avoid.
+const GRID_BATCH = 60;
+
 class CategoryRows {
     /**
      * @param {HTMLElement} container
@@ -75,6 +80,8 @@ class CategoryRows {
     /** @param {Array} groups  [{ title, items }] */
     render(groups) {
         this.observer.disconnect();
+        this.gridObserver?.disconnect();
+        this.showingAll = null;
         this.groups = (groups || []).filter(g => g.items?.length);
         this.built = 0;
         this.container.innerHTML = '';
@@ -115,10 +122,29 @@ class CategoryRows {
         section.className = 'cat-row';
         section.dataset.index = String(this.built - 1);
 
+        const head = document.createElement('div');
+        head.className = 'cat-row-head';
+
         const heading = document.createElement('h3');
         heading.className = 'cat-row-title';
         heading.textContent = group.title;
-        section.appendChild(heading);
+        head.appendChild(heading);
+
+        // A row shows twelve of what a category holds, and the rest was
+        // reachable nowhere at all. Categories here run to sixteen hundred
+        // films, so the way through has to be a grid rather than a longer
+        // row: nobody walks past a dozen cards with a remote, and a row of
+        // that length is the decoded-bitmap problem all over again.
+        if (group.items.length > ROW_LIMIT) {
+            const more = document.createElement('button');
+            more.type = 'button';
+            more.className = 'cat-row-more';
+            more.textContent = `See all ${group.items.length}`;
+            more.addEventListener('click', () => this.showAll(group));
+            head.appendChild(more);
+        }
+
+        section.appendChild(head);
 
         const scroller = document.createElement('div');
         scroller.className = 'horizontal-scroll';
@@ -131,7 +157,81 @@ class CategoryRows {
         this.container.insertBefore(section, this.sentinel);
     }
 
+    /**
+     * One category, in full, as a grid.
+     *
+     * The container is the grid in its ordinary state -- `showing-rows` is
+     * what turns it into a column of rows -- so taking that class off
+     * gives back the layout, the card styles and the d-pad behaviour that
+     * already exist, with nothing new to maintain.
+     */
+    showAll(group) {
+        this.observer.disconnect();
+        clearTimeout(this.recycleTimer);
+        this.rowsScrollTop = this.container.scrollTop;
+
+        this.container.classList.remove('showing-rows');
+        this.container.innerHTML = '';
+
+        const head = document.createElement('div');
+        head.className = 'cat-all-head';
+
+        const back = document.createElement('button');
+        back.type = 'button';
+        back.className = 'cat-all-back';
+        back.textContent = '← Back';
+        back.addEventListener('click', () => this.closeAll());
+        head.appendChild(back);
+
+        const title = document.createElement('h2');
+        title.className = 'cat-all-title';
+        title.textContent = `${group.title} (${group.items.length})`;
+        head.appendChild(title);
+
+        this.container.appendChild(head);
+
+        let shown = 0;
+        const sentinel = document.createElement('div');
+        sentinel.className = 'cat-all-sentinel';
+
+        const addBatch = () => {
+            const slice = group.items.slice(shown, shown + GRID_BATCH);
+            for (const item of slice) {
+                const card = this.makeCard(item);
+                if (card) this.container.insertBefore(card, sentinel);
+            }
+            shown += slice.length;
+            if (shown >= group.items.length) {
+                this.gridObserver.disconnect();
+                sentinel.remove();
+            }
+        };
+
+        this.gridObserver?.disconnect();
+        this.gridObserver = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting) addBatch();
+        }, { root: this.container, rootMargin: '400px' });
+
+        this.container.appendChild(sentinel);
+        addBatch();
+        this.gridObserver.observe(sentinel);
+
+        this.container.scrollTop = 0;
+        // The remote has nothing under it yet; put the selection somewhere
+        this.container.querySelector('.movie-card')?.focus?.();
+        this.showingAll = group;
+    }
+
+    /** Back to the rows, where the viewer left them. */
+    closeAll() {
+        this.gridObserver?.disconnect();
+        this.showingAll = null;
+        this.render(this.groups);
+        this.container.scrollTop = this.rowsScrollTop || 0;
+    }
+
     destroy() {
+        this.gridObserver?.disconnect();
         this.observer.disconnect();
         clearTimeout(this.recycleTimer);
         this.container.removeEventListener('scroll', this.onScroll);
