@@ -635,6 +635,31 @@ router.post('/epg/:sourceId/channels', async (req, res) => {
 });
 
 /**
+ * What the proxy was asked to fetch, or why it will not.
+ *
+ * Only absolute http(s) is accepted. A relative path cannot be resolved
+ * here -- the manifest it came from was rewritten, so this server's own
+ * address is all a player would have to resolve it against -- and a
+ * non-http scheme is not ours to fetch at all.
+ */
+function parseTarget(raw) {
+    const shown = String(raw ?? '').slice(0, 120);
+    if (!raw || raw === 'undefined' || raw === 'null') {
+        return { ok: false, why: 'URL required', shown };
+    }
+    let url;
+    try {
+        url = new URL(String(raw));
+    } catch {
+        return { ok: false, why: 'URL is not absolute', shown };
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return { ok: false, why: `URL scheme ${url.protocol} is not proxied`, shown };
+    }
+    return { ok: true, url, raw: String(raw) };
+}
+
+/**
  * Proxy stream for playback
  * This handles CORS for streams that don't allow cross-origin
  * Supports HTTP Range requests for video seeking
@@ -643,13 +668,27 @@ router.get('/stream', async (req, res) => {
     const maxRetries = 2;
     let lastError = null;
 
+    // Checked once, before the loop: a URL that does not parse will not
+    // start parsing on the second attempt, and retrying it only buries
+    // the cause. "Invalid URL" twice over is all the log said when a
+    // caller asked about the string "undefined" -- which is what
+    // encodeURIComponent makes of a missing value, and it sails past a
+    // falsy check. Naming what arrived is the whole difference between a
+    // log that explains the outage and one that mentions it.
+    const target = parseTarget(req.query.url);
+    if (!target.ok) {
+        log.warn(`[Proxy] Refusing ${target.why}: ${target.shown}`);
+        return res.status(400).json({ error: target.why, url: target.shown });
+    }
+    // The origin is taken from the parsed copy; what gets fetched is the
+    // string as it arrived. new URL().href normalises -- a trailing
+    // slash, percent-encoding -- and a provider's URL is not ours to
+    // tidy up on its way through.
+    const origin = target.url.origin;
+    const url = target.raw;
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-            let { url } = req.query;
-            if (!url) {
-                return res.status(400).json({ error: 'URL required' });
-            }
-
             // Forward some headers to be more "transparent" back to the origin
             // Pluto TV uses multiple domains for content delivery
             const plutoDomains = ['pluto.tv', 'pluto.io', 'plutotv.net', 'siloh.pluto.tv', 'service-stitcher'];
@@ -660,8 +699,8 @@ router.get('/stream', async (req, res) => {
                 'Accept': '*/*',
                 'Accept-Language': 'en-US,en;q=0.9',
                 // Using https and matching the origin of the request
-                'Origin': isPluto ? 'https://pluto.tv' : new URL(url).origin,
-                'Referer': isPluto ? 'https://pluto.tv/' : new URL(url).origin + '/'
+                'Origin': isPluto ? 'https://pluto.tv' : origin,
+                'Referer': isPluto ? 'https://pluto.tv/' : origin + '/'
             };
 
             // Forward Range header for video seeking support
@@ -874,3 +913,4 @@ router.get('/image', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.parseTarget = parseTarget;

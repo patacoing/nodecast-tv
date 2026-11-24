@@ -1343,9 +1343,19 @@ class VideoPlayer {
             if (this.video && !this.video.paused && this.video.readyState >= 3) return;
 
             let reason = 'This channel did not start.';
+            // Nothing to ask the server about if we never had an address.
+            // encodeURIComponent turns a missing one into the string
+            // "undefined", which the proxy used to accept and then fail on
+            // as "Invalid URL" -- an entry in the log that described the
+            // probe rather than the outage it was sent to explain.
+            const probe = source || this.currentUrl;
+            if (!probe) {
+                this.showError(reason);
+                return;
+            }
             try {
                 const res = await fetch('/api/proxy/stream?url='
-                    + encodeURIComponent(source || this.currentUrl), { method: 'GET' });
+                    + encodeURIComponent(probe), { method: 'GET' });
 
                 // The server fetched what this device could not. That is
                 // not the provider being down, it is the path from here to
