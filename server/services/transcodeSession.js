@@ -37,6 +37,13 @@ const LIVE_RESTART_ATTEMPTS = 3;
 const LIVE_RESTART_DELAY_MS = 1000;
 const LIVE_RESTART_SETTLE_MS = 30000;
 
+// How long a segment that has fallen out of the playlist is left alone
+// before it is treated as litter. A player holds the playlist it last
+// loaded, so a segment can still be asked for shortly after it stopped
+// being listed; the live window is six segments of four seconds, so a
+// minute is comfortably past anything still in a player's hands.
+const ORPHAN_GRACE_MS = 60000;
+
 const SEGMENT_DURATION = 4; // seconds per HLS segment
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // Check every 5 minutes
 
@@ -239,12 +246,67 @@ class TranscodeSession extends EventEmitter {
             if (this.retired || this.stopping) return;
             log.info(`[TranscodeSession ${this.id}] Reconnecting`
                 + ` (${this.restartCount}/${LIVE_RESTART_ATTEMPTS})`);
-            this.start().catch(err => {
+            this.start().then(() => {
+                // The generation that just died left its segments behind.
+                this.pruneOrphanSegments().catch(() => { });
+            }).catch(err => {
                 this.status = 'error';
                 this.error = err.message;
             });
         }, LIVE_RESTART_DELAY_MS);
         this.restartTimer.unref?.();
+    }
+
+    /**
+     * Delete segments the playlist no longer lists.
+     *
+     * delete_segments only ever removes what the current ffmpeg wrote.
+     * Each reconnection leaves the previous process's segments behind,
+     * since the new one inherits the playlist but not the bookkeeping, so
+     * a channel that drops often accumulates files nobody will ask for --
+     * slowly, and for as long as the session lives.
+     *
+     * Only what the playlist does not mention is removed, and only once
+     * it has sat still for the grace period: a viewer whose player is a
+     * playlist behind should not have a segment pulled out from under it.
+     */
+    async pruneOrphanSegments(graceMs = ORPHAN_GRACE_MS) {
+        let playlist;
+        try {
+            playlist = await fs.readFile(this.playlistPath, 'utf8');
+        } catch {
+            return 0;   // nothing to judge against; leave every file alone
+        }
+        const listed = new Set(playlist.split('\n')
+            .map(line => line.trim())
+            .filter(line => line && !line.startsWith('#')));
+
+        let names;
+        try {
+            names = await fs.readdir(this.dir);
+        } catch {
+            return 0;
+        }
+
+        const cutoff = Date.now() - graceMs;
+        let removed = 0;
+        for (const name of names) {
+            if (!name.endsWith('.ts') || listed.has(name)) continue;
+            const file = path.join(this.dir, name);
+            try {
+                const stat = await fs.stat(file);
+                if (stat.mtimeMs > cutoff) continue;
+                await fs.unlink(file);
+                removed++;
+            } catch {
+                // already gone, or never ours to begin with
+            }
+        }
+        if (removed) {
+            log.info(`[TranscodeSession ${this.id}] Pruned ${removed}`
+                + ` segment(s) the playlist no longer lists`);
+        }
+        return removed;
     }
 
     /**
@@ -847,7 +909,14 @@ async function removeSession(sessionId) {
 }
 
 /**
- * Cleanup stale sessions (idle for too long)
+ * Cleanup stale sessions (idle for too long), and sweep the litter a live
+ * session leaves behind.
+ *
+ * Pruning at the moment of a reconnection is always a generation behind:
+ * the segments the dead process wrote are still listed then, and only
+ * become orphans once the new process has pushed them out of the window.
+ * A channel watched for hours without dropping again would keep them for
+ * ever, so the sweep comes back for them.
  */
 async function cleanupStaleSessions() {
     const now = Date.now();
@@ -855,6 +924,8 @@ async function cleanupStaleSessions() {
         if (now - session.lastAccess > SESSION_TIMEOUT_MS) {
             log.info(`[TranscodeSession] Cleaning up stale session ${id}`);
             await removeSession(id);
+        } else if (session.options.isLive && session.status === 'running') {
+            await session.pruneOrphanSegments().catch(() => { });
         }
     }
 }
