@@ -898,7 +898,11 @@ class VideoPlayer {
             const res = await fetch('/api/transcode/session', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url, ...options })
+                // This player only ever serves live channels -- films and
+                // episodes go through WatchPage, which posts its own body
+                // -- so the server can treat every session it starts as a
+                // live one and reconnect it when the input drops.
+                body: JSON.stringify({ isLive: true, url, ...options })
             });
             if (!res.ok) throw new Error('Failed to start session');
             const session = await res.json();

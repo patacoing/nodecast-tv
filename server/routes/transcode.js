@@ -32,7 +32,7 @@ transcodeSession.startCleanupInterval();
  */
 router.post('/session', async (req, res) => {
     const { url, seekOffset, videoMode, videoCodec, audioCodec, audioChannels,
-            maxResolution } = req.body;
+            maxResolution, isLive } = req.body;
 
     if (!url) {
         return res.status(400).json({ error: 'URL is required' });
@@ -69,6 +69,10 @@ router.post('/session', async (req, res) => {
             upscaleEnabled: settings.upscaleEnabled || false,
             upscaleMethod: settings.upscaleMethod || 'hardware',
             upscaleTarget: settings.upscaleTarget || '1080p',
+            // A live channel never ends on its own, so an ffmpeg that
+            // stops is a disconnection to reconnect from, and the playlist
+            // is a sliding window rather than a growing one.
+            isLive: !!isLive,
             videoMode: videoMode, // 'copy' or 'encode'
             videoCodec: videoCodec, // 'h264', 'hevc', etc.
             audioCodec: audioCodec, // 'aac', 'ac3', etc.

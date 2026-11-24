@@ -30,6 +30,13 @@ const CACHE_DIR = path.join(process.cwd(), 'transcode-cache');
 
 // Session settings
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes idle timeout
+// A live input that drops is reconnected, not abandoned. Three tries a
+// second apart; a run that held for the settle time starts the count over,
+// so an occasional hiccup never exhausts the allowance.
+const LIVE_RESTART_ATTEMPTS = 3;
+const LIVE_RESTART_DELAY_MS = 1000;
+const LIVE_RESTART_SETTLE_MS = 30000;
+
 const SEGMENT_DURATION = 4; // seconds per HLS segment
 const CLEANUP_INTERVAL_MS = 5 * 60 * 1000; // Check every 5 minutes
 
@@ -68,6 +75,14 @@ class TranscodeSession extends EventEmitter {
         this.error = null;
         this.startTime = Date.now();
         this.lastAccess = Date.now();
+
+        // Live restart state. A live input is not a file that ends: when
+        // ffmpeg stops on its own the channel has gone quiet, not finished.
+        this.stopping = false;      // stop() asked for this exit
+        this.retired = false;       // cleanup() did; never come back
+        this.restartTimer = null;
+        this.restartCount = 0;
+        this.processStartedAt = 0;
         this.options = {
             ffmpegPath: options.ffmpegPath || 'ffmpeg',
             userAgent: options.userAgent || 'Mozilla/5.0',
@@ -92,6 +107,8 @@ class TranscodeSession extends EventEmitter {
         }
 
         this.status = 'starting';
+        this.stopping = false;
+        this.processStartedAt = Date.now();
         log.info(`[TranscodeSession ${this.id}] Starting session for: ${this.url}`);
 
         // Create session directory
@@ -137,9 +154,23 @@ class TranscodeSession extends EventEmitter {
                 }
             });
 
+            let processError = false;
+
             // Handle process exit
             this.process.on('exit', (code) => {
-                if (code === 0 || code === null) {
+                this.process = null;
+                transcodeSessions.add(-1);
+
+                // ffmpeg reports success when a live input simply stops
+                // answering: the provider returned 404 on a playlist
+                // reload, ffmpeg gave up and exited 0, and the picture
+                // froze with nothing left running. For a live channel an
+                // exit nobody asked for is a disconnection, not an end.
+                if (!this.retired && !this.stopping && this.options.isLive && !processError) {
+                    log.warn(`[TranscodeSession ${this.id}] Live input ended by itself`
+                        + ` (code ${code}), reconnecting`);
+                    this.scheduleLiveRestart();
+                } else if (code === 0 || code === null) {
                     log.info(`[TranscodeSession ${this.id}] FFmpeg completed successfully`);
                     this.status = 'stopped';
                 } else if (code !== 255) { // 255 is often from SIGKILL
@@ -147,22 +178,26 @@ class TranscodeSession extends EventEmitter {
                     this.status = 'error';
                     this.error = `FFmpeg exited with code ${code}`;
                 }
-                this.process = null;
                 this.emit('exit', code);
             });
 
             // Handle spawn errors
             this.process.on('error', (err) => {
+                processError = true;
                 log.error(`[TranscodeSession ${this.id}] FFmpeg error:`, err);
                 this.status = 'error';
                 this.error = err.message;
                 this.emit('error', err);
             });
 
+            // Counted against the process, not the session: a live session
+            // spawns ffmpeg again on every reconnection, and counting at
+            // the session would leave the gauge climbing for ever.
             transcodeSessions.add(1);
             transcodeStarts.add(1, {
                 video_mode: this.options.videoMode || 'encode',
-                encoder: this.options.hwEncoder || 'software'
+                encoder: this.options.hwEncoder || 'software',
+                reason: this.restartCount ? 'restart' : 'initial'
             });
 
             // Save session metadata
@@ -173,6 +208,43 @@ class TranscodeSession extends EventEmitter {
             this.error = err.message;
             throw err;
         }
+    }
+
+    /**
+     * Bring a live channel back after the input dropped.
+     *
+     * Three attempts a second apart, and the count resets once a run has
+     * held for thirty seconds -- so a provider that hiccups every few
+     * hours is reconnected every time, while one that is genuinely down
+     * is given up on instead of being hammered.
+     */
+    scheduleLiveRestart() {
+        if (this.retired || this.stopping) return;
+
+        if (Date.now() - this.processStartedAt >= LIVE_RESTART_SETTLE_MS) {
+            this.restartCount = 0;
+        }
+        if (++this.restartCount > LIVE_RESTART_ATTEMPTS) {
+            log.error(`[TranscodeSession ${this.id}] Live input dropped`
+                + ` ${this.restartCount - 1} times, giving up`);
+            this.status = 'error';
+            this.error = 'Live input repeatedly disconnected';
+            return;
+        }
+
+        this.status = 'reconnecting';
+        clearTimeout(this.restartTimer);
+        this.restartTimer = setTimeout(() => {
+            this.restartTimer = null;
+            if (this.retired || this.stopping) return;
+            log.info(`[TranscodeSession ${this.id}] Reconnecting`
+                + ` (${this.restartCount}/${LIVE_RESTART_ATTEMPTS})`);
+            this.start().catch(err => {
+                this.status = 'error';
+                this.error = err.message;
+            });
+        }, LIVE_RESTART_DELAY_MS);
+        this.restartTimer.unref?.();
     }
 
     /**
@@ -209,7 +281,11 @@ class TranscodeSession extends EventEmitter {
             '-err_detect', 'ignore_err',
             '-reconnect', '1',
             '-reconnect_streamed', '1',
-            '-reconnect_delay_max', '3'
+            // Without this ffmpeg treats an HTTP error as final: the
+            // provider answered 404 on one playlist reload and ffmpeg
+            // exited rather than asking again a moment later.
+            '-reconnect_on_http_error', '4xx,5xx',
+            '-reconnect_delay_max', '10'
         );
 
         args.push(...hlsInputArgs(this.url), '-i', this.url);
@@ -279,11 +355,20 @@ class TranscodeSession extends EventEmitter {
         }
 
         // HLS output options
+        // A live playlist is a sliding window: six segments, with the ones
+        // that fall off deleted so an evening's viewing does not fill the
+        // disk, and no ENDLIST -- the player has to keep polling across a
+        // reconnection rather than decide the channel is over. A film is
+        // the opposite and keeps every segment, since someone may seek
+        // back to the beginning.
+        const live = !!this.options.isLive;
         args.push(
             '-f', 'hls',
             '-hls_time', String(SEGMENT_DURATION),
-            '-hls_list_size', '0', // Keep all segments in playlist
-            '-hls_flags', 'independent_segments+append_list',
+            '-hls_list_size', live ? '6' : '0',
+            '-hls_flags', live
+                ? 'independent_segments+append_list+delete_segments+omit_endlist'
+                : 'independent_segments+append_list',
             '-hls_segment_type', 'mpegts',
             '-hls_segment_filename', path.join(this.dir, 'seg%04d.ts'),
             this.playlistPath
@@ -538,7 +623,9 @@ class TranscodeSession extends EventEmitter {
      * Stop the transcoding process
      */
     stop() {
-        if (this.status !== 'stopped') transcodeSessions.add(-1);
+        this.stopping = true;
+        clearTimeout(this.restartTimer);
+        this.restartTimer = null;
         if (this.process) {
             log.info(`[TranscodeSession ${this.id}] Stopping FFmpeg process`);
             this.process.kill('SIGTERM');
@@ -656,6 +743,9 @@ class TranscodeSession extends EventEmitter {
      * Delete session directory and all segments
      */
     async cleanup() {
+        this.retired = true;
+        clearTimeout(this.restartTimer);
+        this.restartTimer = null;
         this.stop();
         try {
             await fs.rm(this.dir, { recursive: true, force: true });
