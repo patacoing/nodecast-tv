@@ -1,5 +1,6 @@
 const express = require('express');
 const { hlsInputArgs } = require('../services/hlsInput');
+const { isLiveUrl } = require('../services/liveUrl');
 const router = express.Router();
 const { spawn } = require('child_process');
 const path = require('path');
@@ -72,7 +73,11 @@ router.post('/session', async (req, res) => {
             // A live channel never ends on its own, so an ffmpeg that
             // stops is a disconnection to reconnect from, and the playlist
             // is a sliding window rather than a growing one.
-            isLive: !!isLive,
+            // Inferred as well as declared: the caller's flag is a hint,
+            // not the authority. A client too old to send it once opened a
+            // channel with the growing playlist and took 1.4 GB of disk in
+            // under an hour.
+            isLive: !!isLive || isLiveUrl(url),
             videoMode: videoMode, // 'copy' or 'encode'
             videoCodec: videoCodec, // 'h264', 'hevc', etc.
             audioCodec: audioCodec, // 'aac', 'ac3', etc.

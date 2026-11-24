@@ -782,12 +782,40 @@ function getSession(sessionId) {
 }
 
 /**
+ * Options that are baked into the ffmpeg command, so a session running
+ * with different ones is not the session this caller asked for.
+ *
+ * Matching on the URL alone made reuse silently win every argument. A
+ * channel opened by a client that did not send isLive kept its growing
+ * playlist for as long as it ran: reopening the app rejoined that same
+ * session instead of starting a corrected one, so the fix could not take
+ * hold while anyone was watching. The fallback for a channel with no
+ * picture had the same hole -- it asks for a lower maxResolution, and a
+ * session already running at 1080p would be handed back unchanged.
+ */
+const REUSE_KEYS = ['isLive', 'maxResolution', 'videoMode', 'videoCodec',
+                    'audioCodec', 'audioChannels'];
+
+function sameOptions(session, options) {
+    return REUSE_KEYS.every(k => {
+        const a = session.options[k];
+        const b = options[k];
+        // undefined and false both mean "not asked for" here, and a
+        // caller that omits a key should still join a session started
+        // without it.
+        return (a === undefined ? null : a) === (b === undefined ? null : b)
+            || (!a && !b);
+    });
+}
+
+/**
  * Get or create a session for a URL (reuses existing if still valid)
  */
 async function getOrCreateSession(url, options = {}) {
     // Check for existing session with same URL
     for (const session of sessions.values()) {
-        if (session.url === url && session.status === 'running') {
+        if (session.url === url && session.status === 'running'
+            && sameOptions(session, options)) {
             session.touch();
             return session;
         }
@@ -878,6 +906,7 @@ module.exports = {
     getOrCreateSession,
     removeSession,
     cleanupStaleSessions,
+    sameOptions,
     recoverSessions,
     startCleanupInterval,
     getAllSessions,
