@@ -362,12 +362,23 @@ class TranscodeSession extends EventEmitter {
         // the opposite and keeps every segment, since someone may seek
         // back to the beginning.
         const live = !!this.options.isLive;
+        // A reconnected ffmpeg is a new timeline: it refetches the channel
+        // at whatever the live edge is now and numbers its own timestamps
+        // from near zero, while the playlist carries on being appended to.
+        // Without a discontinuity tag to say so the player stitches the
+        // two together as if they were continuous, and the picture jumps
+        // backwards -- which is exactly what the viewer reported after the
+        // channel dropped twice. The tag belongs only on a restart: on a
+        // first start there is nothing before it to be discontinuous with.
+        const resumed = this.restartCount > 0;
+        const liveFlags = 'independent_segments+append_list+delete_segments'
+            + '+omit_endlist' + (resumed ? '+discont_start' : '');
         args.push(
             '-f', 'hls',
             '-hls_time', String(SEGMENT_DURATION),
             '-hls_list_size', live ? '6' : '0',
             '-hls_flags', live
-                ? 'independent_segments+append_list+delete_segments+omit_endlist'
+                ? liveFlags
                 : 'independent_segments+append_list',
             '-hls_segment_type', 'mpegts',
             '-hls_segment_filename', path.join(this.dir, 'seg%04d.ts'),

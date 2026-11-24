@@ -111,8 +111,17 @@ describe('what the session is told to do', () => {
     });
 
     it('gives a live channel a sliding playlist with no end marker', () => {
-        assert.match(SRC, /'-hls_list_size', live \? '6' : '0'/);
-        assert.match(SRC, /delete_segments\+omit_endlist/);
+        // Asserted against the arguments actually built, not the text of
+        // the source: the flags are assembled from pieces now, and a test
+        // that greps for the whole string breaks on reformatting while
+        // telling you nothing about what ffmpeg is told.
+        const { TranscodeSession } = require('../server/services/transcodeSession');
+        const args = new TranscodeSession('http://p.tv/live/u/p/471.m3u8',
+            { isLive: true }).buildFFmpegArgs();
+        assert.equal(args[args.indexOf('-hls_list_size') + 1], '6');
+        const flags = args[args.indexOf('-hls_flags') + 1];
+        assert.match(flags, /delete_segments/);
+        assert.match(flags, /omit_endlist/);
     });
 
     it('leaves a film keeping every segment, for seeking back', () => {
@@ -156,5 +165,49 @@ describe('knowing a channel is live', () => {
             'routes', 'transcode.js'), 'utf8');
         assert.match(route, /maxResolution, isLive \} = req\.body/);
         assert.match(route, /isLive: !!isLive/);
+    });
+});
+
+/**
+ * The jump backwards a viewer saw after the channel dropped twice.
+ *
+ * A reconnected ffmpeg refetches the channel at the live edge as it is
+ * now and timestamps from near zero, while the playlist keeps being
+ * appended to. Nothing in the playlist said the timeline had broken, so
+ * the player stitched the old and new parts together and the picture went
+ * back in time. HLS has a tag for exactly this.
+ */
+describe('resuming a live channel without sending the picture backwards', () => {
+    const { TranscodeSession } = require('../server/services/transcodeSession');
+
+    function flagsFor({ isLive, restartCount }) {
+        const s = new TranscodeSession('http://p.tv/live/u/p/471.m3u8', {
+            isLive, ffmpegPath: 'ffmpeg'
+        });
+        s.restartCount = restartCount;
+        const args = s.buildFFmpegArgs();
+        return args[args.indexOf('-hls_flags') + 1];
+    }
+
+    it('marks the discontinuity when it comes back from a drop', () => {
+        assert.match(flagsFor({ isLive: true, restartCount: 1 }), /discont_start/);
+    });
+
+    it('does not mark one on a first start, having nothing to break from', () => {
+        assert.doesNotMatch(flagsFor({ isLive: true, restartCount: 0 }), /discont_start/);
+    });
+
+    it('keeps the sliding window across the reconnection', () => {
+        const f = flagsFor({ isLive: true, restartCount: 2 });
+        assert.match(f, /delete_segments/);
+        assert.match(f, /omit_endlist/);
+        assert.match(f, /append_list/);
+    });
+
+    it('leaves a film alone, restart or not', () => {
+        for (const restartCount of [0, 1]) {
+            assert.equal(flagsFor({ isLive: false, restartCount }),
+                'independent_segments+append_list');
+        }
     });
 });
